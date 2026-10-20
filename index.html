@@ -25,7 +25,7 @@
   .hud{position:fixed;inset:0;pointer-events:none;z-index:10}
   .hud > *{pointer-events:auto}
 
-  .brand{position:absolute;left:34px;top:30px;line-height:1}
+  .brand{position:absolute;left:50%;top:26px;transform:translateX(-50%);text-align:center;line-height:1}
   .brand h1{
     margin:0;font-size:15px;font-weight:600;letter-spacing:.32em;
     color:#f4f5f8;text-transform:uppercase;
@@ -35,7 +35,7 @@
     margin:11px 0 0;font-size:11.5px;letter-spacing:.16em;color:var(--dim);
     font-family:ui-monospace,"SFMono-Regular",Consolas,monospace;
   }
-  .rule{width:38px;height:1px;background:linear-gradient(90deg,var(--accent),transparent);margin:14px 0 0}
+  .rule{width:38px;height:1px;background:linear-gradient(90deg,transparent,var(--accent),transparent);margin:13px auto 0}
 
   .dock{
     position:absolute;left:50%;bottom:26px;transform:translateX(-50%);
@@ -87,7 +87,7 @@
 
   /* ---------- DMX 控制台 ---------- */
   .mixer{
-    position:absolute;left:34px;bottom:26px;width:330px;
+    position:absolute;left:34px;top:26px;width:330px;
     height:33vh;min-height:248px;max-height:430px;
     display:flex;flex-direction:column;
     background:var(--glass);border:1px solid var(--line);border-radius:16px;
@@ -142,8 +142,9 @@
   .fallback b{color:#f2b45c}
 
   @media (max-width:720px){
-    .brand{left:20px;top:20px}
+    .brand{left:50%;top:16px;transform:translateX(-50%)}
     .spec{display:none}
+    .mixer{display:none}
     .brand p{font-size:10px}
     button{padding:9px 11px;font-size:11.5px}
     .hint{display:none}
