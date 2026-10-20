@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>MOVING HEAD · 光束灯教学模型</title>
+<style>
+  :root{
+    --ink:#e9ebf0;
+    --dim:#858c9b;
+    --line:rgba(255,255,255,.075);
+    --glass:rgba(17,19,24,.72);
+    --accent:#f2b45c;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;overflow:hidden;background:#06070a;color:var(--ink);
+    font-family:"Inter","HarmonyOS Sans SC","PingFang SC",system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  canvas{display:block;position:fixed;inset:0;touch-action:none}
+
+  /* ---------- HUD ---------- */
+  .hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+  .hud > *{pointer-events:auto}
+
+  .brand{position:absolute;left:34px;top:30px;line-height:1}
+  .brand h1{
+    margin:0;font-size:15px;font-weight:600;letter-spacing:.32em;
+    color:#f4f5f8;text-transform:uppercase;
+  }
+  .brand h1 em{font-style:normal;color:var(--accent);letter-spacing:.1em}
+  .brand p{
+    margin:11px 0 0;font-size:11.5px;letter-spacing:.16em;color:var(--dim);
+    font-family:ui-monospace,"SFMono-Regular",Consolas,monospace;
+  }
+  .rule{width:38px;height:1px;background:linear-gradient(90deg,var(--accent),transparent);margin:14px 0 0}
+
+  .dock{
+    position:absolute;left:50%;bottom:26px;transform:translateX(-50%);
+    display:flex;align-items:center;gap:6px;padding:7px;
+    background:var(--glass);border:1px solid var(--line);border-radius:999px;
+    backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+    box-shadow:0 18px 50px -20px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .dock .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+  button{
+    appearance:none;border:0;background:transparent;color:var(--dim);
+    font:inherit;font-size:12.5px;letter-spacing:.08em;
+    padding:9px 15px;border-radius:999px;cursor:pointer;
+    transition:color .18s,background .18s,box-shadow .18s;
+  }
+  button:hover{color:#e9ebf0;background:rgba(255,255,255,.05)}
+  button.on{color:#101216;background:var(--accent);box-shadow:0 0 22px -6px rgba(242,180,92,.65)}
+  button.ghost.on{background:#e9ebf0;box-shadow:none}
+  button:active{transform:translateY(1px)}
+
+  .hint{
+    position:absolute;left:50%;bottom:78px;transform:translateX(-50%);
+    font-size:11px;letter-spacing:.14em;color:#565d6b;white-space:nowrap;
+    font-family:ui-monospace,Consolas,monospace;
+  }
+  .spec{
+    position:absolute;right:34px;top:30px;text-align:right;
+    font-size:11px;letter-spacing:.1em;color:var(--dim);
+    font-family:ui-monospace,Consolas,monospace;line-height:1.9;
+  }
+  .spec b{color:#cfd4de;font-weight:500}
+
+  .fallback{
+    position:fixed;inset:0;display:none;place-items:center;z-index:50;
+    background:#06070a;text-align:center;padding:30px;
+  }
+  .fallback div{max-width:420px;font-size:13px;line-height:2;color:#98a0ae}
+  .fallback b{color:#f2b45c}
+
+  @media (max-width:720px){
+    .brand{left:20px;top:20px}
+    .spec{display:none}
+    .brand p{font-size:10px}
+    button{padding:9px 11px;font-size:11.5px}
+    .hint{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="hud">
+  <div class="brand">
+    <h1>Moving Head <em>Beam</em></h1>
+    <p>PROCEDURAL · THREE.JS r186</p>
+    <div class="rule"></div>
+  </div>
+
+  <div class="spec">
+    <b>405 × 345 × 475</b> mm<br>
+    BEAM 230 · 7R<br>
+    PAN 540° / TILT 270°
+  </div>
+
+  <div class="hint">DRAG 旋转 · SCROLL 缩放 · R 复位 · SPACE 自动旋转</div>
+
+  <div class="dock">
+    <button data-mode="solid" class="on">外观</button>
+    <button data-mode="ghost">透视</button>
+    <button data-mode="explode">爆炸</button>
+    <span class="sep"></span>
+    <button id="btnRotate" class="ghost on">自动旋转</button>
+    <button id="btnReset">复位</button>
+  </div>
+</div>
+
+<div class="fallback" id="fallback">
+  <div>
+    <b>three.js 没能加载</b><br>
+    这个页面需要联网从 CDN 取 three.js（jsDelivr）。<br>
+    请检查网络后刷新；或在浏览器里允许该页访问网络。
+  </div>
+</div>
+
+<script>
+  setTimeout(function(){
+    var f = document.getElementById('fallback');
+    f.style.display = window.__MH_OK ? 'none' : 'grid';
+  }, 12000);
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+/* ============================================================
+   0. 渲染器 / 场景
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.VSMShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x080a0e, 2.2, 7.5);
+
+// 深色渐变背景（贴在 CSS 之上，作为真实背景，fog 才能无缝融合）
+(function background(){
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 512;
+  const g = c.getContext('2d').createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0.00, '#1b2028');
+  g.addColorStop(0.42, '#0d1015');
+  g.addColorStop(0.72, '#080a0e');
+  g.addColorStop(1.00, '#050609');
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 64, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  scene.background = tex;
+})();
+
+const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.05, 60);
+camera.position.set(0.84, 0.56, 1.10);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.255, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.minDistance = 0.55;
+controls.maxDistance = 3.2;
+controls.maxPolarAngle = Math.PI * 0.497;   // 不钻到地面以下
+controls.minPolarAngle = Math.PI * 0.06;
+controls.autoRotateSpeed = 0.55;
+controls.update();
+
+// 环境反射（自制冷色影棚 HDRI，避免暖褐偏色）
+const pmrem = new THREE.PMREMGenerator(renderer);
+(function environment(){
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0.00, '#4a6178');
+  g.addColorStop(0.30, '#22303f');
+  g.addColorStop(0.62, '#0d131b');
+  g.addColorStop(1.00, '#05070a');
+  x.fillStyle = g; x.fillRect(0, 0, 512, 256);
+  // 顶部柔光带 —— 给金属一条干净的反射亮条
+  const s = x.createLinearGradient(0, 34, 0, 96);
+  s.addColorStop(0.00, 'rgba(255,255,255,0)');
+  s.addColorStop(0.45, 'rgba(226,238,255,0.92)');
+  s.addColorStop(1.00, 'rgba(255,255,255,0)');
+  x.fillStyle = s; x.fillRect(70, 34, 372, 62);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  scene.environment = pmrem.fromEquirectangular(tex).texture;
+})();
+scene.environmentIntensity = 0.55;
+
+/* ============================================================
+   1. 灯光
+   ============================================================ */
+const key = new THREE.DirectionalLight(0xffffff, 2.4);
+key.position.set(-0.85, 1.45, 1.05);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -0.42;
+key.shadow.camera.right = 0.42;
+key.shadow.camera.top = 0.55;
+key.shadow.camera.bottom = -0.1;
+key.shadow.camera.near = 0.6;
+key.shadow.camera.far = 4;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.008;
+key.shadow.radius = 6;
+key.shadow.blurSamples = 14;
+scene.add(key);
+
+const rim = new THREE.DirectionalLight(0x92b6ff, 2.3);
+rim.position.set(1.5, 1.05, -1.35);
+scene.add(rim);
+
+const kick = new THREE.DirectionalLight(0xa8c2ff, 0.30);
+kick.position.set(-1.35, 0.42, -1.1);
+scene.add(kick);
+
+const fill = new THREE.DirectionalLight(0xc8d8ff, 0.42);
+fill.position.set(1.25, 0.30, 0.85);
+scene.add(fill);
+
+const topL = new THREE.DirectionalLight(0xdbe6ff, 0.55);
+topL.position.set(0.2, 2.2, 0.15);
+scene.add(topL);
+
+scene.add(new THREE.HemisphereLight(0x2b3546, 0x040507, 0.55));
+
+// 地面：虚空 + 影子接收面 + 极淡的接触光池
+(function floor(){
+  const shadowCatcher = new THREE.Mesh(
+    new THREE.CircleGeometry(3.4, 64),
+    new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.42 })
+  );
+  shadowCatcher.rotation.x = -Math.PI / 2;
+  shadowCatcher.position.y = 0.0015;
+  shadowCatcher.renderOrder = 2;
+  shadowCatcher.receiveShadow = true;
+  scene.add(shadowCatcher);
+
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0.00, 'rgba(255,255,255,0.55)');
+  g.addColorStop(0.35, 'rgba(255,255,255,0.16)');
+  g.addColorStop(1.00, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const pool = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.35, 1.35),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, color: 0x6d7f9e, opacity: 0.5 })
+  );
+  pool.rotation.x = -Math.PI / 2;
+  pool.renderOrder = 1;
+  scene.add(pool);
+})();
+
+/* ============================================================
+   2. 材质
+   ============================================================ */
+const P = THREE.MeshPhysicalMaterial;
+const S = THREE.MeshStandardMaterial;
+
+const M = {
+  body:   new P({ color:0x191c22, metalness:0.16, roughness:0.46, clearcoat:0.22, clearcoatRoughness:0.6 }),
+  accent: new P({ color:0x1d2027, metalness:0.42, roughness:0.30, clearcoat:0.35, clearcoatRoughness:0.4 }),
+  matt:   new S({ color:0x0d0e12, metalness:0.05, roughness:0.72 }),
+  steel:  new S({ color:0xc3c8d0, metalness:1.0, roughness:0.26 }),
+  dark:   new S({ color:0x2a2e36, metalness:0.9, roughness:0.42 }),
+  chrome: new S({ color:0xf0f3f7, metalness:1.0, roughness:0.055 }),
+  rubber: new S({ color:0x080809, metalness:0.0, roughness:0.92 }),
+  lens:   new P({ color:0x0e1c2c, metalness:0.0, roughness:0.04, clearcoat:1.0,
+                  transparent:true, opacity:0.85, ior:1.52, envMapIntensity:2.4 }),
+  glassc: new P({ color:0xbfe9ff, metalness:0.0, roughness:0.04, clearcoat:1.0,
+                  transparent:true, opacity:0.34, envMapIntensity:1.6 }),
+  pcb:    new S({ color:0x0d3a26, metalness:0.2, roughness:0.55 }),
+  bowl:   new S({ color:0xf2f5fa, metalness:1.0, roughness:0.055, side:THREE.DoubleSide }),
+  lcd:    new S({ color:0x061420, emissive:0x2f86c8, emissiveIntensity:1.35, roughness:0.2 }),
+  blue:   new S({ color:0x1b4f8a, metalness:0.5, roughness:0.35 })
+};
+M.body.envMapIntensity = 0.7;
+M.accent.envMapIntensity = 0.8;
+M.accentDS = new P({ color:0x1d2027, metalness:0.42, roughness:0.30, clearcoat:0.35, clearcoatRoughness:0.4, side:THREE.DoubleSide });
+
+// 幽灵（透视）材质
+const GHOST = new P({
+  color:0x8fb2da, metalness:0.0, roughness:0.06, clearcoat:1.0,
+  transparent:true, opacity:0.062, depthWrite:false,
+  side:THREE.DoubleSide, envMapIntensity:1.2
+});
+
+/* ============================================================
+   3. 几何工具
+   ============================================================ */
+const housing = [];      // 可透视的外壳
+const EXPLODE = [];      // 可爆炸的光学件
+
+function mark(m, isHousing){
+  m.receiveShadow = true;
+  m.castShadow = !!isHousing;          // 只有外壳投影，内部件不投影（避免影子发脏）
+  if (isHousing) { m.userData.solid = m.material; housing.push(m); }
+  return m;
+}
+
+function roundedRectShape(w, h, r){
+  const s = new THREE.Shape();
+  const x = -w/2, y = -h/2;
+  s.moveTo(x + r, y);
+  s.lineTo(x + w - r, y);
+  s.quadraticCurveTo(x + w, y, x + w, y + r);
+  s.lineTo(x + w, y + h - r);
+  s.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  s.lineTo(x + r, y + h);
+  s.quadraticCurveTo(x, y + h, x, y + h - r);
+  s.lineTo(x, y + r);
+  s.quadraticCurveTo(x, y, x + r, y);
+  s.closePath();
+  return s;
+}
+
+function octShape(w, d, c){
+  const s = new THREE.Shape();
+  const x = w/2, y = d/2;
+  s.moveTo(-x + c, -y);
+  s.lineTo(x - c, -y); s.lineTo(x, -y + c); s.lineTo(x, y - c);
+  s.lineTo(x - c, y);  s.lineTo(-x + c, y); s.lineTo(-x, y - c);
+  s.lineTo(-x, -y + c); s.closePath();
+  return s;
+}
+
+function extrude(shape, depth, mat, bevel = 0.002, isHousing = true){
+  const g = new THREE.ExtrudeGeometry(shape, {
+    depth, bevelEnabled:true, bevelThickness:bevel, bevelSize:bevel,
+    bevelSegments:2, curveSegments:20, steps:1
+  });
+  g.translate(0, 0, -depth / 2);
+  g.computeVertexNormals();
+  return mark(new THREE.Mesh(g, mat), isHousing);
+}
+
+// 沿 Y 轴的棱柱（底座、回转盘）
+function prism(shape, height, mat, bevel = 0.002){
+  const m = extrude(shape, height, mat, bevel);
+  m.rotation.x = -Math.PI / 2;
+  return m;
+}
+
+// 用 (z, y) 折线做一块沿 X 拉伸的板（轭架）
+function plate(pts, thickness, mat, bevel = 0.004){
+  const s = new THREE.Shape();
+  s.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) s.lineTo(pts[i][0], pts[i][1]);
+  s.closePath();
+  const m = extrude(s, thickness, mat, bevel);
+  m.rotation.y = Math.PI / 2;   // 厚度转到 X 轴
+  return m;
+}
+
+function cyl(r1, r2, h, mat, seg = 32){
+  const g = new THREE.CylinderGeometry(r1, r2, h, seg);
+  return mark(new THREE.Mesh(g, mat), false);
+}
+
+function disc(r, t, mat, seg = 48){
+  const g = new THREE.CylinderGeometry(r, r, t, seg);
+  return mark(new THREE.Mesh(g, mat), false);
+}
+
+function at(obj, x, y, z){ obj.position.set(x, y, z); return obj; }
+
+/* ============================================================
+   4. 尺寸（真机 Beam 230：405 × 345 × 475 mm）
+   ============================================================ */
+const BASE_W = 0.400, BASE_D = 0.300;
+const ARM_X  = 0.158, ARM_T = 0.034;
+const HEAD_W = 0.212, HEAD_H = 0.222, HEAD_L = 0.380;
+const HEAD_Z0 = -0.200, HEAD_Z1 = 0.180;      // 光轴 = +Z
+const TILT_Y = 0.395;
+const DRUM_Y0 = 0.100, DRUM_Y1 = 0.166;
+
+const root = new THREE.Group();
+scene.add(root);
+
+const pan  = new THREE.Group();  pan.position.y = 0.100;  root.add(pan);   // 绕 Y 旋转 360°
+const tilt = new THREE.Group();  tilt.position.y = TILT_Y - 0.100; pan.add(tilt); // 绕 X 俯仰
+
+/* ---------- 4.1 静止底座 ---------- */
+const base = prism(octShape(BASE_W - 0.016, BASE_D - 0.016, 0.048), 0.070, M.body, 0.008);
+at(base, 0, 0.047, 0);
+root.add(base);
+
+const baseTop = prism(octShape(BASE_W - 0.030, BASE_D - 0.030, 0.042), 0.008, M.accent, 0.003);
+at(baseTop, 0, 0.086, 0);
+root.add(baseTop);
+
+// 脚垫
+[[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([sx, sz]) => {
+  const f = cyl(0.014, 0.014, 0.014, M.rubber, 20);
+  at(f, sx * 0.146, 0.007, sz * 0.108);
+  root.add(f);
+});
+
+// 后面板：接口
+const panel = new THREE.Mesh(new THREE.BoxGeometry(0.238, 0.052, 0.008), M.accent);
+at(panel, 0, 0.048, -0.150);
+root.add(mark(panel, true));
+
+const xlrX = [-0.082, -0.044];
+xlrX.forEach((x, i) => {
+  const c = cyl(0.0105, 0.0105, 0.016, M.dark, 20); c.rotation.x = Math.PI / 2;
+  at(c, x, 0.048, -0.156); root.add(c);
+  const p = cyl(0.0078, 0.0078, 0.004, M.matt, 16); p.rotation.x = Math.PI / 2;
+  at(p, x, 0.048, -0.163); root.add(p);
+});
+// powerCON
+const pc = cyl(0.017, 0.017, 0.019, M.accent, 24); pc.rotation.x = Math.PI / 2;
+at(pc, 0.006, 0.048, -0.156); root.add(pc);
+const pcRing = new THREE.Mesh(new THREE.TorusGeometry(0.0125, 0.0032, 8, 24), M.blue);
+at(pcRing, 0.006, 0.048, -0.166); root.add(mark(pcRing, false));
+// 电源开关 + 保险
+const sw = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.018, 0.010), M.accent);
+at(sw, 0.060, 0.048, -0.155); root.add(mark(sw, true));
+const fz = cyl(0.0088, 0.0088, 0.014, M.accent, 16); fz.rotation.x = Math.PI / 2;
+at(fz, 0.102, 0.048, -0.156); root.add(fz);
+
+// 前面板：LCD + 按键
+const lcdFrame = new THREE.Mesh(new THREE.BoxGeometry(0.092, 0.062, 0.006), M.accent);
+at(lcdFrame, 0.012, 0.045, 0.148); root.add(mark(lcdFrame, true));
+const lcd = new THREE.Mesh(new THREE.BoxGeometry(0.076, 0.046, 0.004), M.lcd);
+at(lcd, 0.012, 0.045, 0.152); root.add(lcd);
+[-0.108, -0.090, -0.072, -0.054].forEach(x => {
+  const b = new THREE.Mesh(new THREE.BoxGeometry(0.011, 0.011, 0.005), M.accent);
+  at(b, x, 0.045, 0.150); root.add(mark(b, true));
+});
+const knob = cyl(0.0115, 0.0115, 0.012, M.steel, 24); knob.rotation.x = Math.PI / 2;
+at(knob, 0.086, 0.045, 0.154); root.add(knob);
+
+// 侧面散热百叶
+for (const s of [1, -1]) {
+  for (let i = 0; i < 5; i++) {
+    const v = new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.007, 0.034), M.matt);
+    at(v, s * (BASE_W/2 - 0.001), 0.050, -0.062 + i * 0.031);
+    root.add(mark(v, true));
+  }
+}
+
+/* ---------- 4.1b 底座内部（电气层） ---------- */
+{
+  const pcb = new THREE.Mesh(new THREE.BoxGeometry(0.212, 0.006, 0.150), M.pcb);
+  at(pcb, 0, 0.021, 0.006); root.add(mark(pcb, false));
+
+  for (let i = 0; i < 10; i++) {
+    const w = 0.014 + (i % 3) * 0.006;
+    const ch = new THREE.Mesh(new THREE.BoxGeometry(w, 0.005, 0.010), M.dark);
+    at(ch, -0.072 + i * 0.016, 0.027, -0.010 + (i % 3) * 0.014);
+    root.add(mark(ch, false));
+  }
+  for (let i = 0; i < 3; i++) {
+    const cap = cyl(0.0065, 0.0065, 0.018, M.dark, 14);
+    at(cap, 0.056 + i * 0.016, 0.034, 0.040);
+    root.add(cap);
+  }
+  // 电源模块
+  const psu = new THREE.Mesh(new THREE.BoxGeometry(0.104, 0.046, 0.070), M.dark);
+  at(psu, -0.098, 0.049, -0.062); root.add(mark(psu, false));
+  const psuFin = new THREE.Mesh(new THREE.BoxGeometry(0.100, 0.040, 0.004), M.matt);
+  at(psuFin, -0.098, 0.049, -0.098); root.add(mark(psuFin, false));
+
+  // pan 电机 + 编码器（静止侧）
+  const pMotor = cyl(0.021, 0.021, 0.052, M.dark, 22);
+  at(pMotor, 0.058, 0.062, -0.052); root.add(mark(pMotor, false));
+  const pEnc = cyl(0.013, 0.013, 0.022, M.dark, 16);
+  at(pEnc, -0.048, 0.048, -0.052); root.add(mark(pEnc, false));
+
+  // 内部线束
+  const wireMat = new THREE.MeshStandardMaterial({ color:0x0c0c0e, roughness:0.75 });
+  [[0.070, -0.030, 0.040], [0.020, -0.078, 0.010]].forEach(([x, z, spread]) => {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x, 0.026, z),
+      new THREE.Vector3(x + 0.006, 0.048, z - 0.014),
+      new THREE.Vector3(x - 0.004, 0.070, z - 0.030),
+      new THREE.Vector3(x + 0.010, 0.086, z - 0.044)
+    ]);
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, 0.0032, 6, false), wireMat);
+    root.add(tube);
+  });
+}
+
+/* ---------- 4.2 pan 回转体（随 pan 360° 旋转） ---------- */
+const drum = prism(octShape(0.276, 0.228, 0.062), DRUM_Y1 - DRUM_Y0, M.body, 0.012);
+at(drum, 0, (DRUM_Y0 + DRUM_Y1) / 2 - 0.100, 0);
+pan.add(drum);
+
+const drumLip = prism(octShape(0.307, 0.257, 0.064), 0.007, M.accent, 0.0025);
+at(drumLip, 0, DRUM_Y0 + 0.008 - 0.100, 0);
+pan.add(drumLip);
+
+// 顶部轴座
+const boss = cyl(0.058, 0.058, 0.014, M.body, 40);
+at(boss, 0, DRUM_Y1 - 0.100 + 0.006, 0.004);
+pan.add(boss); housing.push(boss); boss.userData.solid = boss.material;
+
+[1, -1].forEach(s => {
+  const plug = cyl(0.007, 0.007, 0.006, M.accent, 18); plug.rotation.x = Math.PI / 2;
+  at(plug, s * 0.060, DRUM_Y0 + 0.040 - 0.100, -0.126);
+  pan.add(plug);
+});
+
+/* ---------- 4.3 轭架（随 pan 旋转） ---------- */
+// (z, y) 轮廓：宽底、收腰、顶部斜切
+const armProfile = [
+  [-0.118, 0.000], [0.118, 0.000], [0.118, 0.034],
+  [0.096, 0.088], [0.082, 0.158], [0.074, 0.212], [0.062, 0.248],
+  [-0.062, 0.248], [-0.074, 0.212], [-0.082, 0.158], [-0.096, 0.088], [-0.118, 0.034]
+];
+for (const s of [1, -1]) {
+  const arm = plate(armProfile, ARM_T, M.body);
+  at(arm, s * ARM_X, DRUM_Y0 - 0.100, 0);
+  pan.add(arm);
+
+  // 外侧镶板
+  const cheekPts = armProfile.map(([z, y]) => [z * 0.76, y * 0.80 + 0.022]);
+  const cheek = plate(cheekPts, 0.007, M.accent, 0.002);
+  at(cheek, s * (ARM_X + ARM_T / 2), DRUM_Y0 - 0.100, 0);
+  pan.add(cheek);
+
+  // 俯仰轴座
+  const hub = cyl(0.050, 0.050, ARM_T + 0.016, M.accent, 40);
+  hub.rotation.z = Math.PI / 2;
+  at(hub, s * ARM_X, TILT_Y - 0.100, 0);
+  pan.add(hub);
+  hub.castShadow = hub.receiveShadow = true;
+  housing.push(hub); hub.userData.solid = hub.material;
+
+  const cap = cyl(0.021, 0.021, 0.008, M.steel, 28);
+  cap.rotation.z = Math.PI / 2;
+  at(cap, s * (ARM_X + ARM_T / 2 + 0.010), TILT_Y - 0.100, 0);
+  pan.add(cap);
+}
+
+/* ---------- 4.4 灯头 ---------- */
+// 收顶：上窄下宽
+function taper(g, halfH, kTop, kBot){
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i);
+    const t = y > 0 ? (y / halfH) * kTop : (-y / halfH) * kBot;
+    p.setX(i, p.getX(i) * (1 - t));
+  }
+  p.needsUpdate = true;
+  g.computeVertexNormals();
+  return g;
+}
+
+const headGeo = new RoundedBoxGeometry(HEAD_W, HEAD_H, HEAD_L, 7, 0.036);
+taper(headGeo, HEAD_H / 2, 0.095, -0.028);
+const head = mark(new THREE.Mesh(headGeo, M.body), true);
+at(head, 0, 0, (HEAD_Z0 + HEAD_Z1) / 2);
+tilt.add(head);
+
+/* 镜头罩：锥形环 + 钢圈（代替一块大平板） */
+const hood = new THREE.Mesh(new THREE.CylinderGeometry(0.087, 0.069, 0.030, 72, 1, true), M.accentDS);
+hood.rotation.x = Math.PI / 2;
+at(hood, 0, 0, HEAD_Z1 + 0.013);
+hood.castShadow = true; hood.receiveShadow = true;
+housing.push(hood); hood.userData.solid = hood.material;
+tilt.add(hood);
+
+const hoodRim = new THREE.Mesh(new THREE.TorusGeometry(0.087, 0.0034, 10, 72), M.steel);
+at(hoodRim, 0, 0, HEAD_Z1 + 0.027);
+tilt.add(mark(hoodRim, false));
+
+const hoodBase = new THREE.Mesh(new THREE.TorusGeometry(0.0705, 0.0042, 10, 64), M.dark);
+at(hoodBase, 0, 0, HEAD_Z1 + 0.002);
+tilt.add(mark(hoodBase, false));
+
+// 前端镜圈螺钉
+for (let i = 0; i < 8; i++) {
+  const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+  const sx = Math.cos(a) * 0.092, sy = Math.sin(a) * 0.100;
+  const sc = cyl(0.0032, 0.0032, 0.005, M.steel, 10);
+  sc.rotation.x = Math.PI / 2;
+  at(sc, sx * (1 - (sy > 0 ? (sy / 0.111) * 0.095 : 0)), sy, HEAD_Z1 + 0.0015);
+  tilt.add(sc);
+}
+
+// 前镜片
+const lensPts = [];
+for (let i = 0; i <= 14; i++) {
+  const t = i / 14, r = Math.sin(t * Math.PI * 0.5) * 0.0615;
+  const z = -0.010 + Math.cos(t * Math.PI * 0.5) * 0.010;
+  lensPts.push(new THREE.Vector2(r, z));
+}
+const lensGeo = new THREE.LatheGeometry(lensPts, 56);
+lensGeo.rotateX(Math.PI / 2);
+const lens = new THREE.Mesh(lensGeo, M.lens);
+lens.rotation.x = Math.PI;      // 弧面朝外
+at(lens, 0, 0, HEAD_Z1 + 0.006);
+tilt.add(mark(lens, false));
+
+// 镜圈内压环
+const lip = new THREE.Mesh(new THREE.TorusGeometry(0.0645, 0.0042, 10, 56), M.accent);
+at(lip, 0, 0, HEAD_Z1 + 0.004);
+tilt.add(mark(lip, true));
+
+// 顶部龙骨（两级）
+const keelA = new THREE.Mesh(new RoundedBoxGeometry(0.064, 0.020, 0.286, 4, 0.005), M.accent);
+at(keelA, 0, HEAD_H / 2 - 0.006, -0.012);
+tilt.add(mark(keelA, true));
+const keelB = new THREE.Mesh(new RoundedBoxGeometry(0.040, 0.010, 0.244, 4, 0.004), M.body);
+at(keelB, 0, HEAD_H / 2 + 0.006, -0.012);
+tilt.add(mark(keelB, true));
+
+// 顶部后段百叶
+for (let i = 0; i < 6; i++) {
+  const sl = new THREE.Mesh(new THREE.BoxGeometry(0.066, 0.004, 0.008), M.matt);
+  at(sl, 0, HEAD_H / 2 - 0.002, -0.150 + i * 0.0135);
+  tilt.add(mark(sl, true));
+}
+
+// 机身中缝螺钉
+for (const s of [1, -1]) {
+  for (let i = 0; i < 4; i++) {
+    const sc = cyl(0.0032, 0.0032, 0.005, M.steel, 10);
+    sc.rotation.z = Math.PI / 2;
+    at(sc, s * (HEAD_W / 2 - 0.0005), 0, -0.150 + i * 0.092);
+    tilt.add(sc);
+  }
+}
+
+// 后端板 + 风扇格栅
+const rearShape = roundedRectShape(HEAD_W - 0.008, HEAD_H - 0.008, 0.034);
+rearShape.holes.push(new THREE.Path().absarc(0, 0, 0.062, 0, Math.PI * 2, true));
+const rearGeo = new THREE.ExtrudeGeometry(rearShape, {
+  depth: 0.010, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002,
+  bevelSegments: 1, curveSegments: 40, steps: 1
+});
+rearGeo.translate(0, 0, -0.005);
+taper(rearGeo, HEAD_H / 2, 0.095, -0.028);
+const rearPlate = mark(new THREE.Mesh(rearGeo, M.accent), true);
+at(rearPlate, 0, 0, HEAD_Z0 + 0.002);
+tilt.add(rearPlate);
+
+for (let i = 0; i < 3; i++) {
+  const t = new THREE.Mesh(new THREE.TorusGeometry(0.020 + i * 0.016, 0.0022, 8, 40), M.dark);
+  at(t, 0, 0, HEAD_Z0 - 0.004);
+  tilt.add(mark(t, true));
+}
+for (let i = 0; i < 6; i++) {
+  const a = (i / 6) * Math.PI;
+  const sp = new THREE.Mesh(new THREE.BoxGeometry(0.056, 0.0035, 0.004), M.dark);
+  sp.rotation.z = a;
+  at(sp, 0, 0, HEAD_Z0 - 0.004);
+  tilt.add(mark(sp, true));
+}
+const hubC = cyl(0.016, 0.016, 0.010, M.dark, 24);
+hubC.rotation.x = Math.PI / 2;
+at(hubC, 0, 0, HEAD_Z0 - 0.004);
+tilt.add(hubC);
+
+/* ============================================================
+   5. 光学链（沿 +Z，可爆炸）
+   ============================================================ */
+function optic(k, z, name){
+  const g = new THREE.Group();
+  g.position.z = z;
+  tilt.add(g);
+  EXPLODE.push({ g, z0: z, k, name });
+  return g;
+}
+
+// 5.1 光源 + 反光碗
+{
+  const g = optic(0, -0.112);
+  const lamp = cyl(0.011, 0.011, 0.026, M.dark, 20); lamp.rotation.x = Math.PI / 2;
+  at(lamp, 0, 0, -0.018); g.add(mark(lamp, false));
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.009, 16, 12),
+    new S({ color:0x1a1108, emissive:0xff9c46, emissiveIntensity:0.55, roughness:0.4 }));
+  at(bulb, 0, 0, -0.006); g.add(bulb);
+
+  const bowlPts = [];
+  for (let i = 0; i <= 12; i++) {
+    const t = i / 12;
+    const r = 0.047 * Math.pow(t, 0.62);
+    const z = -0.052 + 0.052 * Math.pow(t, 2.1);
+    bowlPts.push(new THREE.Vector2(Math.max(r, 0.002), z));
+  }
+  const bowlGeo = new THREE.LatheGeometry(bowlPts, 56);
+  bowlGeo.rotateX(Math.PI / 2);
+  const bowl = new THREE.Mesh(bowlGeo, M.bowl);
+  at(bowl, 0, 0, -0.004); g.add(mark(bowl, false));
+}
+
+// 5.2 色轮
+{
+  const g = optic(1, -0.072);
+  const wheel = disc(0.050, 0.003, M.dark, 40); wheel.rotation.x = Math.PI / 2;
+  g.add(wheel);
+  const cols = [0xd23b3b, 0x35b269, 0x3d6fd8, 0xd8a13a, 0xd86a2a, 0xb04fd0];
+  cols.forEach((c, i) => {
+    const seg = new THREE.Mesh(
+      new THREE.RingGeometry(0.016, 0.048, 1, 1, (i * 60 + 3) * Math.PI / 180, 54 * Math.PI / 180),
+      new P({ color:c, transparent:true, opacity:0.85, roughness:0.15, metalness:0.1,
+              side:THREE.DoubleSide, emissive:c, emissiveIntensity:0.12 })
+    );
+    seg.position.z = 0.0022;
+    g.add(seg);
+  });
+  const cog = cyl(0.010, 0.010, 0.012, M.steel, 20); cog.rotation.x = Math.PI / 2;
+  g.add(cog);
+  const motor = cyl(0.013, 0.013, 0.032, M.dark, 18); motor.rotation.x = Math.PI / 2;
+  at(motor, 0.030, 0.042, 0.026); g.add(motor);
+}
+
+// 5.3 / 5.4 图案轮
+[[2, -0.038, 8], [3, -0.002, 6]].forEach(([k, z, n]) => {
+  const g = optic(k, z);
+  const wheel = disc(0.048, 0.003, M.dark, 40); wheel.rotation.x = Math.PI / 2;
+  g.add(wheel);
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + 0.2;
+    const gb = disc(0.0085, 0.004, M.steel, 20); gb.rotation.x = Math.PI / 2;
+    at(gb, Math.cos(a) * 0.029, Math.sin(a) * 0.029, 0);
+    g.add(gb);
+  }
+  const motor = cyl(0.013, 0.013, 0.030, M.dark, 18); motor.rotation.x = Math.PI / 2;
+  at(motor, 0.030, 0.044, 0.024); g.add(motor);
+});
+
+// 5.5 棱镜
+{
+  const g = optic(4, 0.034);
+  const d = disc(0.032, 0.003, M.dark, 36); d.rotation.x = Math.PI / 2; g.add(d);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    const f = new THREE.Mesh(new THREE.BoxGeometry(0.010, 0.010, 0.012), M.glassc);
+    f.rotation.y = a;
+    at(f, Math.cos(a) * 0.011, Math.sin(a) * 0.011, 0);
+    g.add(mark(f, false));
+  }
+  const motor = cyl(0.012, 0.012, 0.028, M.dark, 18); motor.rotation.x = Math.PI / 2;
+  at(motor, 0.028, 0.040, 0.022); g.add(motor);
+}
+
+// 5.6 雾化
+{
+  const g = optic(5, 0.066);
+  const fr = disc(0.050, 0.002, M.glassc, 44); fr.rotation.x = Math.PI / 2; g.add(fr);
+  const rimR = new THREE.Mesh(new THREE.TorusGeometry(0.051, 0.0035, 8, 44), M.accent);
+  g.add(mark(rimR, false));
+}
+
+// 5.7 调焦 / 变焦镜组
+[[6, 0.100, 0.050], [7, 0.132, 0.055], [8, 0.162, 0.058]].forEach(([k, z, r]) => {
+  const g = optic(k, z);
+  const holder = new THREE.Mesh(new THREE.TorusGeometry(r + 0.006, 0.0055, 10, 52), M.accent);
+  g.add(mark(holder, false));
+
+  const pts = [];
+  for (let i = 0; i <= 10; i++) {
+    const t = i / 10;
+    const rr = Math.sin(t * Math.PI * 0.5) * r;
+    const zz = -0.008 + Math.cos(t * Math.PI * 0.5) * 0.008;
+    pts.push(new THREE.Vector2(Math.max(rr, 0.001), zz));
+  }
+  const lg = new THREE.LatheGeometry(pts, 48);
+  lg.rotateX(Math.PI / 2);
+  const l = new THREE.Mesh(lg, M.glassc);
+  l.rotation.x = Math.PI;
+  g.add(mark(l, false));
+
+  for (let i = 0; i < 4; i++) {
+    const a = Math.PI / 4 + i * Math.PI / 2;
+    const sl = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.010, 0.014), M.dark);
+    at(sl, Math.cos(a) * (r + 0.012), Math.sin(a) * (r + 0.012), 0);
+    sl.rotation.z = a;
+    g.add(mark(sl, false));
+  }
+});
+
+// 5.8 导杆 + 侧框
+[[Math.PI/4, 1], [3*Math.PI/4, 1], [-Math.PI/4, 1], [-3*Math.PI/4, 1]].forEach(([a]) => {
+  const rod = cyl(0.0038, 0.0038, 0.320, M.steel, 12);
+  rod.rotation.x = Math.PI / 2;
+  at(rod, Math.cos(a) * 0.083, Math.sin(a) * 0.083, -0.010);
+  tilt.add(rod);
+});
+for (const s of [1, -1]) {
+  const f = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.030, 0.310), M.dark);
+  at(f, s * 0.090, 0.052, -0.010);
+  tilt.add(mark(f, false));
+}
+
+/* ============================================================
+   6. 模式 / 交互
+   ============================================================ */
+const state = { mode: 'solid', p: 0, target: 0, ghost: 0, ghostTarget: 0, auto: true };
+
+function setMode(mode){
+  state.mode = mode;
+  state.ghostTarget = (mode === 'solid') ? 0 : 1;
+  state.target = (mode === 'explode') ? 1 : 0;
+  document.querySelectorAll('[data-mode]').forEach(b =>
+    b.classList.toggle('on', b.dataset.mode === mode));
+}
+
+document.querySelectorAll('[data-mode]').forEach(b =>
+  b.addEventListener('click', () => setMode(b.dataset.mode)));
+
+const btnRotate = document.getElementById('btnRotate');
+btnRotate.addEventListener('click', () => {
+  state.auto = !state.auto;
+  controls.autoRotate = state.auto;
+  btnRotate.classList.toggle('on', state.auto);
+});
+
+const home = { pos: new THREE.Vector3(0.84, 0.56, 1.10), tgt: new THREE.Vector3(0, 0.255, 0) };
+document.getElementById('btnReset').addEventListener('click', () => {
+  camera.position.copy(home.pos);
+  controls.target.copy(home.tgt);
+  controls.update();
+});
+
+addEventListener('keydown', e => {
+  if (e.code === 'KeyR') { camera.position.copy(home.pos); controls.target.copy(home.tgt); controls.update(); }
+  if (e.code === 'Space') { e.preventDefault(); btnRotate.click(); }
+  if (e.code === 'Digit1') setMode('solid');
+  if (e.code === 'Digit2') setMode('ghost');
+  if (e.code === 'Digit3') setMode('explode');
+});
+
+// 拖拽时暂停自动旋转
+let resumeTimer = null;
+renderer.domElement.addEventListener('pointerdown', () => {
+  controls.autoRotate = false;
+  clearTimeout(resumeTimer);
+});
+renderer.domElement.addEventListener('pointerup', () => {
+  clearTimeout(resumeTimer);
+  resumeTimer = setTimeout(() => { if (state.auto) controls.autoRotate = true; }, 1600);
+});
+
+controls.autoRotate = true;
+
+// 视图参数（可分享 / 自检）：?mode=ghost&cam=1.1,0.6,0.9&tgt=0,0.28,0
+(function urlViews(){
+  const q = new URLSearchParams(location.search);
+  const num = s => s.split(',').map(Number);
+  if (q.get('cam')) camera.position.set(...num(q.get('cam')));
+  if (q.get('tgt')) controls.target.set(...num(q.get('tgt')));
+  if (q.get('mode')) setMode(q.get('mode'));
+  controls.update();
+})();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ============================================================
+   7. 主循环
+   ============================================================ */
+let lastT = performance.now();
+let appliedGhost = -1;
+
+function animate(){
+  const now = performance.now();
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+
+  // 平滑过渡
+  state.ghost += (state.ghostTarget - state.ghost) * Math.min(1, dt * 7);
+  state.p     += (state.target     - state.p)     * Math.min(1, dt * 5);
+
+  // 外壳材质：实体 / 幽灵
+  if (Math.abs(state.ghost - appliedGhost) > 0.004){
+    appliedGhost = state.ghost;
+    GHOST.opacity = 0.20 * state.ghost;
+    housing.forEach(m => {
+      m.material = (state.ghost > 0.02) ? GHOST : m.userData.solid;
+      m.castShadow = state.ghost < 0.5;
+      m.renderOrder = (state.ghost > 0.02) ? 2 : 0;
+    });
+  }
+
+  // 光学件爆炸
+  EXPLODE.forEach(e => {
+    e.g.position.z = e.z0 + state.p * (e.k * 0.048);
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+renderer.setAnimationLoop(animate);
+
+window.__MH_OK = true;
+const fb = document.getElementById('fallback');
+if (fb) fb.style.display = 'none';
+</script>
+</body>
+</html>
