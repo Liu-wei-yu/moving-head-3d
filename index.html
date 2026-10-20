@@ -87,27 +87,28 @@
 
   /* ---------- DMX 控制台 ---------- */
   .mixer{
-    position:absolute;left:34px;bottom:26px;width:206px;
-    background:var(--glass);border:1px solid var(--line);border-radius:14px;
-    padding:12px 14px 10px;backdrop-filter:blur(18px) saturate(140%);
-    -webkit-backdrop-filter:blur(18px) saturate(140%);
-    box-shadow:0 20px 50px -24px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.05);
+    position:absolute;left:34px;bottom:26px;width:330px;
+    height:33vh;min-height:248px;max-height:430px;
+    display:flex;flex-direction:column;
+    background:var(--glass);border:1px solid var(--line);border-radius:16px;
+    padding:14px 20px 8px;backdrop-filter:blur(20px) saturate(140%);
+    -webkit-backdrop-filter:blur(20px) saturate(140%);
+    box-shadow:0 26px 64px -30px rgba(0,0,0,.95),inset 0 1px 0 rgba(255,255,255,.06);
   }
   .mixer .h{
     display:flex;justify-content:space-between;align-items:baseline;
-    font-size:10px;letter-spacing:.2em;color:#6f7787;
+    font-size:10.5px;letter-spacing:.22em;color:#6f7787;
     font-family:ui-monospace,Consolas,monospace;margin-bottom:10px;
   }
-  .ch{display:flex;align-items:center;gap:8px;margin:7px 0}
-  .ch span{
-    width:46px;font-size:9.5px;letter-spacing:.13em;color:#7d8697;
-    font-family:ui-monospace,Consolas,monospace;
+  .mixer .ch{
+    flex:1;display:flex;flex-direction:column;justify-content:center;gap:10px;
+    border-top:1px solid rgba(255,255,255,.05);padding:4px 0;
   }
-  .ch input[type=range]{width:100%;margin:0}
-  .ch b{
-    width:38px;text-align:right;font-size:10px;font-weight:500;color:#c9cfdb;
-    font-family:ui-monospace,Consolas,monospace;
-  }
+  .ch .row{display:flex;justify-content:space-between;align-items:baseline}
+  .ch .row span{font-size:10px;letter-spacing:.2em;color:#7d8697;font-family:ui-monospace,Consolas,monospace}
+  .ch .row b{font-size:12px;font-weight:500;color:#d5dae5;font-family:ui-monospace,Consolas,monospace}
+  .mixer .ch input[type=range]{width:100%;height:4px;margin:0}
+  .mixer .ch input[type=range]::-webkit-slider-thumb{width:14px;height:14px}
 
   @media (max-width:900px){ .mixer{display:none} .info{right:16px;top:104px;width:200px} }
 
@@ -163,11 +164,17 @@
   </div>
 
   <div class="mixer">
-    <div class="h"><span>DMX 控制台</span><span>CH 1–4</span></div>
-    <div class="ch"><span>PAN</span><input id="mPan" type="range" min="-180" max="180" value="7"><b id="vPan">7°</b></div>
-    <div class="ch"><span>TILT</span><input id="mTilt" type="range" min="-60" max="60" value="25"><b id="vTilt">25°</b></div>
-    <div class="ch"><span>ZOOM</span><input id="mZoom" type="range" min="2" max="12" step="0.2" value="4.4"><b id="vZoom">4.4°</b></div>
-    <div class="ch"><span>COLOR</span><input id="mColor" type="range" min="0" max="6" step="1" value="0"><b id="vColor">OPEN</b></div>
+    <div class="h"><span>DMX 控制台</span><span>CH 1–5</span></div>
+    <div class="ch"><div class="row"><span>PAN</span><b id="vPan">7°</b></div>
+      <input id="mPan" type="range" min="-180" max="180" value="7"></div>
+    <div class="ch"><div class="row"><span>TILT</span><b id="vTilt">30°</b></div>
+      <input id="mTilt" type="range" min="-60" max="60" value="30"></div>
+    <div class="ch"><div class="row"><span>ZOOM</span><b id="vZoom">4.4°</b></div>
+      <input id="mZoom" type="range" min="2" max="12" step="0.2" value="4.4"></div>
+    <div class="ch"><div class="row"><span>COLOR</span><b id="vColor">OPEN</b></div>
+      <input id="mColor" type="range" min="0" max="6" step="1" value="0"></div>
+    <div class="ch"><div class="row"><span>GOBO</span><b id="vGobo">OPEN</b></div>
+      <input id="mGobo" type="range" min="0" max="6" step="1" value="0"></div>
   </div>
 
   <div class="dock">
@@ -244,10 +251,10 @@ scene.fog = new THREE.Fog(0x141821, 2.2, 4.6);
 })();
 
 const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.05, 60);
-camera.position.set(1.06, 0.63, 1.63);
+camera.position.set(1.12, 0.68, 1.74);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.245, 0.13);
+controls.target.set(0, 0.21, 0.22);
 controls.enableDamping = true;
 controls.dampingFactor = 0.055;
 controls.minDistance = 0.55;
@@ -856,20 +863,112 @@ let wheelGroup;
   at(motor, -0.024, 0.052, 0.026); g.add(motor);
 }
 
-// 5.3 / 5.4 图案轮
-[[2, -0.038, 8], [3, -0.002, 6]].forEach(([k, z, n]) => {
-  const g = optic(k, z);
+/* ---- 图案片纹理（画布生成） ---- */
+const WHITE_TEX = (function(){
+  const c = document.createElement('canvas'); c.width = c.height = 8;
+  const x = c.getContext('2d'); x.fillStyle = '#ffffff'; x.fillRect(0, 0, 8, 8);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+
+function makeGobo(kind){
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = '#000'; x.fillRect(0, 0, 256, 256);
+  x.fillStyle = '#fff'; x.strokeStyle = '#fff'; x.lineCap = 'round';
+
+  if (kind === 'breakup') {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 30; i++) {
+      x.beginPath();
+      x.arc(rnd() * 256, rnd() * 256, 5 + rnd() * 17, 0, 7);
+      x.fill();
+    }
+  } else if (kind === 'dots') {
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+      x.beginPath(); x.arc(32 + i * 64, 32 + j * 64, 16, 0, 7); x.fill();
+    }
+  } else if (kind === 'bars') {
+    for (let i = 0; i < 5; i++) x.fillRect(22 + i * 46, 0, 20, 256);
+  } else if (kind === 'star') {
+    x.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / 5;
+      const r = (i % 2) ? 44 : 104;
+      const px = 128 + Math.cos(a) * r, py = 128 + Math.sin(a) * r;
+      i ? x.lineTo(px, py) : x.moveTo(px, py);
+    }
+    x.closePath(); x.fill();
+  } else if (kind === 'rings') {
+    x.lineWidth = 13;
+    for (let i = 0; i < 3; i++) { x.beginPath(); x.arc(128, 128, 34 + i * 38, 0, 7); x.stroke(); }
+  } else if (kind === 'spiral') {
+    x.lineWidth = 11;
+    for (let k = 0; k < 3; k++) {
+      x.beginPath();
+      for (let t = 0; t < 130; t++) {
+        const a = t * 0.14 + k * 2.1, r = t * 0.78;
+        const px = 128 + Math.cos(a) * r, py = 128 + Math.sin(a) * r;
+        t ? x.lineTo(px, py) : x.moveTo(px, py);
+      }
+      x.stroke();
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+const GOBO_NAMES = ['OPEN', 'BREAK', 'DOTS', 'BARS', 'STAR', 'RINGS', 'SPIRAL'];
+const GOBO_STOPS = GOBO_NAMES.map((n, i) => ({ name: n, tex: i ? makeGobo(n.toLowerCase()) : null }));
+const goboRotFor = i => THREE.MathUtils.degToRad(180 - i * SECT);
+let goboGroup;
+
+// 5.3 图案轮 1（7 位、偏心、带真实图案，可选）
+{
+  const g = optic(2, -0.038);
+  goboGroup = new THREE.Group();
+  goboGroup.position.x = 0.033;
+  g.add(goboGroup);
+
+  for (let i = 1; i <= 6; i++) {
+    const a0 = (i * SECT + 2) * Math.PI / 180;
+    const sector = new THREE.Mesh(
+      new THREE.RingGeometry(0.010, 0.052, 12, 1, a0, (SECT - 4) * Math.PI / 180), M.dark);
+    goboGroup.add(sector);
+  }
+  GOBO_STOPS.forEach((s, i) => {
+    if (!s.tex) return;
+    const a = (i * SECT) * Math.PI / 180;
+    const gb = new THREE.Mesh(new THREE.CircleGeometry(0.0125, 26),
+      new THREE.MeshStandardMaterial({ map: s.tex, roughness: 0.42, metalness: 0.5, color: 0xd2d7df }));
+    gb.position.set(Math.cos(a) * 0.031, Math.sin(a) * 0.031, 0.0024);
+    goboGroup.add(gb);
+  });
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.0535, 0.0034, 8, 44),
+    new P({ color: 0x1e2128, metalness: 0.6, roughness: 0.35 }));
+  goboGroup.add(rim);
+  const cog = disc(0.010, 0.012, M.steel, 18); cog.rotation.x = Math.PI / 2; goboGroup.add(cog);
+  const motor = cyl(0.013, 0.013, 0.030, M.dark, 18); motor.rotation.x = Math.PI / 2;
+  at(motor, -0.026, 0.050, 0.024); g.add(motor);
+}
+
+// 5.4 图案轮 2（装饰）
+{
+  const g = optic(3, -0.002);
   const wheel = disc(0.048, 0.003, M.dark, 40); wheel.rotation.x = Math.PI / 2;
   g.add(wheel);
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2 + 0.2;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.2;
     const gb = disc(0.0085, 0.004, M.steel, 20); gb.rotation.x = Math.PI / 2;
     at(gb, Math.cos(a) * 0.029, Math.sin(a) * 0.029, 0);
     g.add(gb);
   }
   const motor = cyl(0.013, 0.013, 0.030, M.dark, 18); motor.rotation.x = Math.PI / 2;
   at(motor, 0.030, 0.044, 0.024); g.add(motor);
-});
+}
 
 // 5.5 棱镜
 {
@@ -1000,6 +1099,7 @@ tilt.add(beam);
 const spot = new THREE.SpotLight(0xd8e6ff, 0, 8, THREE.MathUtils.degToRad(3.2), 0.5, 1.05);
 spot.position.set(0, 0, HEAD_Z1);
 spot.target.position.set(0, 0, HEAD_Z1 + 2);
+spot.map = WHITE_TEX;
 tilt.add(spot, spot.target);
 
 const glow = (function(){
@@ -1029,6 +1129,7 @@ const glow = (function(){
 const state = { mode: 'solid', p: 0, target: 0, ghost: 0, ghostTarget: 0, auto: true,
                 beam: true, dim: 0.72, dimA: 0,
                 zoom: 4.4, colorIdx: 0,
+                goboIdx: 0, goboT: goboRotFor(0),
                 wheelT: wheelRotFor(0), colorTarget: new THREE.Color(COLOR_STOPS[0].hex),
                 colorCur: new THREE.Color(COLOR_STOPS[0].hex) };
 
@@ -1050,7 +1151,7 @@ btnRotate.addEventListener('click', () => {
   btnRotate.classList.toggle('on', state.auto);
 });
 
-const home = { pos: new THREE.Vector3(1.06, 0.63, 1.63), tgt: new THREE.Vector3(0, 0.245, 0.13) };
+const home = { pos: new THREE.Vector3(1.12, 0.68, 1.74), tgt: new THREE.Vector3(0, 0.21, 0.22) };
 document.getElementById('btnReset').addEventListener('click', () => {
   camera.position.copy(home.pos);
   controls.target.copy(home.tgt);
@@ -1120,10 +1221,21 @@ mColor.addEventListener('input', () => {
   state.colorTarget.set(COLOR_STOPS[i].hex);
   vColor.textContent = COLOR_STOPS[i].name;
 });
+
+const mGobo = document.getElementById('mGobo'), vGobo = document.getElementById('vGobo');
+mGobo.addEventListener('input', () => {
+  const i = +mGobo.value;
+  state.goboIdx = i;
+  state.goboT = goboRotFor(i);
+  spot.map = GOBO_STOPS[i].tex || WHITE_TEX;
+  vGobo.textContent = GOBO_STOPS[i].name;
+});
 pan.rotation.y = THREE.MathUtils.degToRad(+mPan.value);
 tilt.rotation.x = THREE.MathUtils.degToRad(+mTilt.value);
 state.wheelT = wheelRotFor(0);
 wheelGroup.rotation.z = state.wheelT;
+state.goboT = goboRotFor(0);
+goboGroup.rotation.z = state.goboT;
 
 /* ---- 点选部件 ---- */
 const raycaster = new THREE.Raycaster();
@@ -1251,8 +1363,9 @@ function animate(){
   glow.material.opacity = state.dimA * 0.75;
   beam.visible = state.dimA > 0.003;
 
-  // 色轮 / 变焦 / 颜色
+  // 色轮 / 图案轮 / 变焦 / 颜色
   wheelGroup.rotation.z += (state.wheelT - wheelGroup.rotation.z) * Math.min(1, dt * 5);
+  goboGroup.rotation.z += (state.goboT - goboGroup.rotation.z) * Math.min(1, dt * 5);
   state.colorCur.lerp(state.colorTarget, Math.min(1, dt * 7));
   beamMat.uniforms.uColor.value.copy(state.colorCur);
   spot.color.copy(state.colorCur);
