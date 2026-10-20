@@ -110,6 +110,16 @@
   .mixer .ch input[type=range]{width:100%;height:4px;margin:0}
   .mixer .ch input[type=range]::-webkit-slider-thumb{width:14px;height:14px}
 
+  .mixer .toggles{display:flex;gap:8px;padding:10px 0 3px;border-top:1px solid rgba(255,255,255,.05);margin-top:2px}
+  .mini{
+    flex:1;padding:7px 0;font-size:11px;letter-spacing:.14em;border-radius:8px;
+    background:rgba(255,255,255,.045);color:#9aa3b2;
+    border:1px solid rgba(255,255,255,.07);cursor:pointer;
+    transition:background .18s,color .18s,box-shadow .18s;
+  }
+  .mini:hover{color:#e9ebf0;background:rgba(255,255,255,.08)}
+  .mini.on{background:var(--accent);color:#101216;border-color:transparent;box-shadow:0 0 16px -5px rgba(242,180,92,.85)}
+
   @media (max-width:900px){ .mixer{display:none} .info{right:16px;top:104px;width:200px} }
 
   .hint{
@@ -152,7 +162,7 @@
   <div class="spec">
     <b>405 × 345 × 475</b> mm<br>
     BEAM 230 · 7R<br>
-    PAN 540° / TILT 270°
+    PAN ±180° / TILT −180…60°
   </div>
 
   <div class="hint">DRAG 旋转 · SCROLL 缩放 · L 光束 · 1/2/3 模式 · R 复位 · SPACE 自动旋转</div>
@@ -168,13 +178,17 @@
     <div class="ch"><div class="row"><span>PAN</span><b id="vPan">7°</b></div>
       <input id="mPan" type="range" min="-180" max="180" value="7"></div>
     <div class="ch"><div class="row"><span>TILT</span><b id="vTilt">30°</b></div>
-      <input id="mTilt" type="range" min="-60" max="60" value="30"></div>
+      <input id="mTilt" type="range" min="-180" max="60" value="30"></div>
     <div class="ch"><div class="row"><span>ZOOM</span><b id="vZoom">4.4°</b></div>
       <input id="mZoom" type="range" min="2" max="12" step="0.2" value="4.4"></div>
     <div class="ch"><div class="row"><span>COLOR</span><b id="vColor">OPEN</b></div>
       <input id="mColor" type="range" min="0" max="6" step="1" value="0"></div>
     <div class="ch"><div class="row"><span>GOBO</span><b id="vGobo">OPEN</b></div>
       <input id="mGobo" type="range" min="0" max="6" step="1" value="0"></div>
+    <div class="toggles">
+      <button id="btnPrism" class="mini">棱镜</button>
+      <button id="btnSpin" class="mini">自转</button>
+    </div>
   </div>
 
   <div class="dock">
@@ -1102,6 +1116,38 @@ spot.target.position.set(0, 0, HEAD_Z1 + 2);
 spot.map = WHITE_TEX;
 tilt.add(spot, spot.target);
 
+// ---- 棱镜分光：两组额外光锥 + 光斑，绕光轴旋转 ----
+const beamMatSide = beamMat.clone();
+const prismPivot = new THREE.Group();
+tilt.add(prismPivot);
+const PRISM_ANGLE = THREE.MathUtils.degToRad(3.4);
+const sideBeams = [], sideSpots = [];
+for (let i = 1; i <= 2; i++) {
+  const arm = new THREE.Group();
+  arm.rotation.z = (i / 3) * Math.PI * 2;
+  arm.position.z = 0.020;                 // 从棱镜平面开始发散
+  prismPivot.add(arm);
+
+  const defl = new THREE.Group();
+  defl.rotation.x = PRISM_ANGLE;
+  arm.add(defl);
+
+  const b = new THREE.Mesh(beamGeo, beamMatSide);
+  b.position.z = HEAD_Z1 + 0.014 - 0.020;
+  b.renderOrder = 6;
+  b.visible = false;
+  defl.add(b);
+  sideBeams.push(b);
+
+  const s = new THREE.SpotLight(0xd8e6ff, 0, 8, THREE.MathUtils.degToRad(3.2), 0.5, 1.05);
+  s.position.set(0, 0, HEAD_Z1 - 0.020);
+  s.target.position.set(0, 0, HEAD_Z1 + 1.8);
+  s.map = WHITE_TEX;
+  s.visible = false;
+  defl.add(s, s.target);
+  sideSpots.push(s);
+}
+
 const glow = (function(){
   const c = document.createElement('canvas');
   c.width = c.height = 128;
@@ -1130,6 +1176,7 @@ const state = { mode: 'solid', p: 0, target: 0, ghost: 0, ghostTarget: 0, auto: 
                 beam: true, dim: 0.72, dimA: 0,
                 zoom: 4.4, colorIdx: 0,
                 goboIdx: 0, goboT: goboRotFor(0),
+                prism: false, prismMix: 0, spin: false, spinT: 0,
                 wheelT: wheelRotFor(0), colorTarget: new THREE.Color(COLOR_STOPS[0].hex),
                 colorCur: new THREE.Color(COLOR_STOPS[0].hex) };
 
@@ -1152,14 +1199,48 @@ btnRotate.addEventListener('click', () => {
 });
 
 const home = { pos: new THREE.Vector3(1.12, 0.68, 1.74), tgt: new THREE.Vector3(0, 0.21, 0.22) };
-document.getElementById('btnReset').addEventListener('click', () => {
-  camera.position.copy(home.pos);
-  controls.target.copy(home.tgt);
-  controls.update();
-});
+const HOME = { pan: 0, tilt: -180 };
+let tween = null;
+
+// 复位：相机 + 灯光一起匀速回位（不硬切）
+function resetAll(){
+  const panTo  = THREE.MathUtils.degToRad(HOME.pan);
+  const tiltTo = THREE.MathUtils.degToRad(HOME.tilt);
+  const camD  = camera.position.distanceTo(home.pos) / 1.15;
+  const tgtD  = controls.target.distanceTo(home.tgt) / 1.15;
+  const panD  = Math.abs(panTo - pan.rotation.y) / THREE.MathUtils.degToRad(150);
+  const tiltD = Math.abs(tiltTo - tilt.rotation.x) / THREE.MathUtils.degToRad(150);
+  tween = {
+    t0: performance.now(),
+    dur: Math.max(camD, tgtD, panD, tiltD, 0.55),
+    camFrom: camera.position.clone(),
+    tgtFrom: controls.target.clone(),
+    panFrom: pan.rotation.y, tiltFrom: tilt.rotation.x, panTo, tiltTo
+  };
+  controls.enabled = false;
+  controls.autoRotate = false;
+}
+
+function tickTween(){
+  if (!tween) return;
+  const p = Math.min(1, (performance.now() - tween.t0) / (tween.dur * 1000));
+  camera.position.lerpVectors(tween.camFrom, home.pos, p);
+  controls.target.lerpVectors(tween.tgtFrom, home.tgt, p);
+  pan.rotation.y  = tween.panFrom  + (tween.panTo  - tween.panFrom)  * p;
+  tilt.rotation.x = tween.tiltFrom + (tween.tiltTo - tween.tiltFrom) * p;
+  if (p >= 1){
+    tween = null;
+    controls.enabled = true;
+    if (state.auto) controls.autoRotate = true;
+    mPan.value = HOME.pan;   vPan.textContent = HOME.pan + '°';
+    mTilt.value = HOME.tilt; vTilt.textContent = HOME.tilt + '°';
+  }
+}
+
+document.getElementById('btnReset').addEventListener('click', resetAll);
 
 addEventListener('keydown', e => {
-  if (e.code === 'KeyR') { camera.position.copy(home.pos); controls.target.copy(home.tgt); controls.update(); }
+  if (e.code === 'KeyR') resetAll();
   if (e.code === 'KeyL') { state.beam = !state.beam; syncBeamUI(); }
   if (e.code === 'Space') { e.preventDefault(); btnRotate.click(); }
   if (e.code === 'Digit1') setMode('solid');
@@ -1201,6 +1282,16 @@ const mPan = document.getElementById('mPan'), vPan = document.getElementById('vP
 const mTilt = document.getElementById('mTilt'), vTilt = document.getElementById('vTilt');
 const mZoom = document.getElementById('mZoom'), vZoom = document.getElementById('vZoom');
 const mColor = document.getElementById('mColor'), vColor = document.getElementById('vColor');
+const btnPrism = document.getElementById('btnPrism');
+const btnSpin = document.getElementById('btnSpin');
+btnPrism.addEventListener('click', () => {
+  state.prism = !state.prism;
+  btnPrism.classList.toggle('on', state.prism);
+});
+btnSpin.addEventListener('click', () => {
+  state.spin = !state.spin;
+  btnSpin.classList.toggle('on', state.spin);
+});
 
 mPan.addEventListener('input', () => {
   pan.rotation.y = THREE.MathUtils.degToRad(+mPan.value);
@@ -1223,11 +1314,15 @@ mColor.addEventListener('input', () => {
 });
 
 const mGobo = document.getElementById('mGobo'), vGobo = document.getElementById('vGobo');
+let activeGoboTex = null;
 mGobo.addEventListener('input', () => {
   const i = +mGobo.value;
   state.goboIdx = i;
   state.goboT = goboRotFor(i);
+  activeGoboTex = GOBO_STOPS[i].tex;
+  if (activeGoboTex) activeGoboTex.rotation = state.spinT;
   spot.map = GOBO_STOPS[i].tex || WHITE_TEX;
+  sideSpots.forEach(s => { s.map = spot.map; });
   vGobo.textContent = GOBO_STOPS[i].name;
 });
 pan.rotation.y = THREE.MathUtils.degToRad(+mPan.value);
@@ -1243,14 +1338,48 @@ const ndcV = new THREE.Vector2();
 const noRay = () => {};
 beam.raycast = noRay;
 glow.raycast = noRay;
+sideBeams.forEach(b => { b.raycast = noRay; });
 
-const selBox = new THREE.Box3Helper(new THREE.Box3(), 0x5fd0ff);
-selBox.raycast = noRay;
-selBox.visible = false;
-selBox.material.depthTest = false;
-selBox.material.transparent = true;
-selBox.material.opacity = 0.9;
-scene.add(selBox);
+const selBox = null;   // 已改用反壳描边，见 buildOutline
+
+// ——— 选中描边：反壳法（BackSide + 沿法线膨胀） ———
+const outlineMat = new THREE.MeshBasicMaterial({
+  color: 0x6fd8ff, side: THREE.BackSide, transparent: true, opacity: 0.92, depthWrite: false
+});
+const outlineMeshes = [];
+const _scaleM = new THREE.Matrix4();
+function clearOutline(){
+  for (const m of outlineMeshes) scene.remove(m);
+  outlineMeshes.length = 0;
+}
+function updateOutline(){
+  for (const m of outlineMeshes){
+    const o = m.userData.src;
+    if (!o) continue;
+    _scaleM.makeScale(m.userData.k, m.userData.k, m.userData.k);
+    m.matrix.copy(o.matrixWorld).multiply(_scaleM);
+    m.matrixWorld.copy(m.matrix);
+  }
+}
+function buildOutline(obj){
+  clearOutline();
+  if (!obj) return;
+  obj.updateWorldMatrix(true, true);
+  obj.traverse(o => {
+    if (!o.isMesh) return;
+    const g = o.geometry;
+    if (!g.boundingSphere) g.computeBoundingSphere();
+    const r = Math.max(g.boundingSphere.radius || 0.02, 0.008);
+    const m = new THREE.Mesh(g, outlineMat);
+    m.matrixAutoUpdate = false;
+    m.renderOrder = 1;
+    m.userData.src = o;
+    m.userData.k = 1 + 0.013 / r;
+    scene.add(m);
+    outlineMeshes.push(m);
+  });
+  updateOutline();
+}
 
 const infoEl = document.getElementById('info');
 const elTag = document.getElementById('infoTag');
@@ -1278,7 +1407,7 @@ function pickAt(cx, cy){
 function showInfo(obj){
   picked = obj;
   if (!obj){
-    selBox.visible = false;
+    clearOutline();
     infoEl.classList.add('empty');
     elTag.textContent = 'SELECT';
     elName.textContent = '点击任意部件';
@@ -1290,7 +1419,7 @@ function showInfo(obj){
   elName.textContent = d.name;
   elBody.textContent = d.body;
   infoEl.classList.remove('empty');
-  selBox.visible = true;
+  buildOutline(obj);
 }
 
 let pdX = 0, pdY = 0;
@@ -1305,7 +1434,9 @@ renderer.domElement.addEventListener('pointermove', e => {
 });
 
 // 调试/分享钩子（不依赖 UI 也能定位部件）
-window.__mh = { pickAt, showInfo, root, camera };
+window.__mh = { pickAt, showInfo, root, camera,
+  debugOutline: () => outlineMeshes.length,
+  setGoboRot: r => { if (activeGoboTex) activeGoboTex.rotation = r; } };
 
 // 视图参数（可分享 / 自检）：?mode=ghost&cam=1.1,0.6,0.9&tgt=0,0.28,0
 (function urlViews(){
@@ -1373,8 +1504,31 @@ function animate(){
   beam.scale.set(zk, zk, 1);
   spot.angle = THREE.MathUtils.degToRad(state.zoom * 0.55);
 
-  if (picked) selBox.box.setFromObject(picked);
+  // 图案轮自转（流水效果）
+  if (state.spin && activeGoboTex){
+    state.spinT += dt * 1.1;
+    activeGoboTex.rotation = state.spinT;
+  }
 
+  // 棱镜分光
+  state.prismMix += ((state.prism ? 1 : 0) - state.prismMix) * Math.min(1, dt * 6);
+  const pm = state.prismMix;
+  const showSide = pm > 0.02;
+  sideBeams.forEach(b => { b.visible = showSide && beam.visible; });
+  sideSpots.forEach(s => {
+    s.visible = showSide;
+    s.intensity = state.dimA * 90 * 0.5 * pm;
+    s.color.copy(state.colorCur);
+    s.map = spot.map;
+  });
+  beamMatSide.uniforms.uOpacity.value = beamMat.uniforms.uOpacity.value * pm;
+  beamMatSide.uniforms.uColor.value.copy(state.colorCur);
+  if (pm > 0.001) prismPivot.rotation.z += dt * 0.7;
+  spot.intensity = state.dimA * 90 * (1 - 0.30 * pm);
+
+  if (picked) updateOutline();
+
+  tickTween();
   controls.update();
   renderer.render(scene, camera);
 }
