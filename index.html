@@ -1199,17 +1199,17 @@ btnRotate.addEventListener('click', () => {
 });
 
 const home = { pos: new THREE.Vector3(1.12, 0.68, 1.74), tgt: new THREE.Vector3(0, 0.21, 0.22) };
-const HOME = { pan: 0, tilt: -180 };
+const HOME = { pan: 0, tilt: -90 };
 let tween = null;
 
 // 复位：相机 + 灯光一起匀速回位（不硬切）
 function resetAll(){
   const panTo  = THREE.MathUtils.degToRad(HOME.pan);
   const tiltTo = THREE.MathUtils.degToRad(HOME.tilt);
-  const camD  = camera.position.distanceTo(home.pos) / 1.15;
-  const tgtD  = controls.target.distanceTo(home.tgt) / 1.15;
-  const panD  = Math.abs(panTo - pan.rotation.y) / THREE.MathUtils.degToRad(150);
-  const tiltD = Math.abs(tiltTo - tilt.rotation.x) / THREE.MathUtils.degToRad(150);
+  const camD  = camera.position.distanceTo(home.pos) / 1.75;
+  const tgtD  = controls.target.distanceTo(home.tgt) / 1.75;
+  const panD  = Math.abs(panTo - pan.rotation.y) / THREE.MathUtils.degToRad(240);
+  const tiltD = Math.abs(tiltTo - tilt.rotation.x) / THREE.MathUtils.degToRad(240);
   tween = {
     t0: performance.now(),
     dur: Math.max(camD, tgtD, panD, tiltD, 0.55),
