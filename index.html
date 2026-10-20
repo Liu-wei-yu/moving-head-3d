@@ -56,6 +56,17 @@
   button.ghost.on{background:#e9ebf0;box-shadow:none}
   button:active{transform:translateY(1px)}
 
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:84px;height:3px;border-radius:2px;
+    background:linear-gradient(90deg,#f2b45c 0%,#f2b45c var(--v,72%),rgba(255,255,255,.13) var(--v,72%));
+    outline:none;cursor:pointer;margin:0 8px 0 4px;vertical-align:middle;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:10px;height:10px;border-radius:50%;background:#f4f6f9;
+    box-shadow:0 0 9px rgba(242,180,92,.85);cursor:pointer;
+  }
+  .off{opacity:.3;pointer-events:none}
+
   .hint{
     position:absolute;left:50%;bottom:78px;transform:translateX(-50%);
     font-size:11px;letter-spacing:.14em;color:#565d6b;white-space:nowrap;
@@ -99,12 +110,15 @@
     PAN 540° / TILT 270°
   </div>
 
-  <div class="hint">DRAG 旋转 · SCROLL 缩放 · R 复位 · SPACE 自动旋转</div>
+  <div class="hint">DRAG 旋转 · SCROLL 缩放 · L 光束 · 1/2/3 模式 · R 复位 · SPACE 自动旋转</div>
 
   <div class="dock">
     <button data-mode="solid" class="on">外观</button>
     <button data-mode="ghost">透视</button>
-    <button data-mode="explode">爆炸</button>
+    <button data-mode="explode">分层</button>
+    <span class="sep"></span>
+    <button id="btnBeam" class="on">光束</button>
+    <input id="dimmer" type="range" min="0" max="100" value="72">
     <span class="sep"></span>
     <button id="btnRotate" class="ghost on">自动旋转</button>
     <button id="btnReset">复位</button>
@@ -149,11 +163,11 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.VSMShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x080a0e, 2.2, 7.5);
+scene.fog = new THREE.Fog(0x141821, 2.2, 4.6);
 
 // 深色渐变背景（贴在 CSS 之上，作为真实背景，fog 才能无缝融合）
 (function background(){
@@ -172,10 +186,10 @@ scene.fog = new THREE.Fog(0x080a0e, 2.2, 7.5);
 })();
 
 const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.05, 60);
-camera.position.set(0.84, 0.56, 1.10);
+camera.position.set(1.22, 0.80, 1.92);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.255, 0);
+controls.target.set(0, 0.22, 0.62);
 controls.enableDamping = true;
 controls.dampingFactor = 0.055;
 controls.minDistance = 0.55;
@@ -247,36 +261,25 @@ scene.add(topL);
 
 scene.add(new THREE.HemisphereLight(0x2b3546, 0x040507, 0.55));
 
-// 地面：虚空 + 影子接收面 + 极淡的接触光池
+// 地面：深色舞台地板（能接光束与投影）
 (function floor(){
-  const shadowCatcher = new THREE.Mesh(
-    new THREE.CircleGeometry(3.4, 64),
-    new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.42 })
-  );
-  shadowCatcher.rotation.x = -Math.PI / 2;
-  shadowCatcher.position.y = 0.0015;
-  shadowCatcher.renderOrder = 2;
-  shadowCatcher.receiveShadow = true;
-  scene.add(shadowCatcher);
-
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = c.height = 512;
   const ctx = c.getContext('2d');
-  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-  g.addColorStop(0.00, 'rgba(255,255,255,0.55)');
-  g.addColorStop(0.35, 'rgba(255,255,255,0.16)');
-  g.addColorStop(1.00, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, 256, 256);
+  const g = ctx.createRadialGradient(256, 256, 30, 256, 256, 256);
+  g.addColorStop(0.0, '#13161d');
+  g.addColorStop(0.55, '#0b0e13');
+  g.addColorStop(1.0, '#07080c');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 512, 512);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const pool = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.35, 1.35),
-    new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false,
-      blending: THREE.AdditiveBlending, color: 0x6d7f9e, opacity: 0.5 })
+  const f = new THREE.Mesh(
+    new THREE.CircleGeometry(6.5, 96),
+    new THREE.MeshStandardMaterial({ map: tex, roughness: 0.60, metalness: 0.08 })
   );
-  pool.rotation.x = -Math.PI / 2;
-  pool.renderOrder = 1;
-  scene.add(pool);
+  f.rotation.x = -Math.PI / 2;
+  f.receiveShadow = true;
+  scene.add(f);
 })();
 
 /* ============================================================
@@ -406,7 +409,9 @@ const root = new THREE.Group();
 scene.add(root);
 
 const pan  = new THREE.Group();  pan.position.y = 0.100;  root.add(pan);   // 绕 Y 旋转 360°
+pan.rotation.y = 0.12;          // 默认微转，让光束斜穿画面
 const tilt = new THREE.Group();  tilt.position.y = TILT_Y - 0.100; pan.add(tilt); // 绕 X 俯仰
+tilt.rotation.x = 0.44;
 
 /* ---------- 4.1 静止底座 ---------- */
 const base = prism(octShape(BASE_W - 0.016, BASE_D - 0.016, 0.048), 0.070, M.body, 0.008);
@@ -816,9 +821,95 @@ for (const s of [1, -1]) {
 }
 
 /* ============================================================
+   5.9 光束：体积光锥 + 地面光斑 + 镜头辉光
+   ============================================================ */
+const BEAM_LEN = 3.2;
+const BEAM_HALF = THREE.MathUtils.degToRad(2.2);
+
+const beamGeo = new THREE.ConeGeometry(Math.tan(BEAM_HALF) * BEAM_LEN, BEAM_LEN, 64, 1, true);
+beamGeo.translate(0, -BEAM_LEN / 2, 0);
+beamGeo.rotateX(-Math.PI / 2);
+
+const beamMat = new THREE.ShaderMaterial({
+  uniforms: {
+    uColor: { value: new THREE.Color(0xd8e6ff) },
+    uOpacity: { value: 0 }
+  },
+  vertexShader: `
+    varying float vT;
+    varying vec3 vN;
+    varying vec3 vV;
+    varying float vY;
+    void main(){
+      vT = clamp(position.z / ${BEAM_LEN.toFixed(2)}, 0.0, 1.0);
+      vec4 wp = modelMatrix * vec4(position, 1.0);
+      vY = wp.y;
+      vec4 mv = viewMatrix * wp;
+      vV = normalize(-mv.xyz);
+      vN = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * mv;
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 uColor;
+    uniform float uOpacity;
+    varying float vT;
+    varying vec3 vN;
+    varying vec3 vV;
+    varying float vY;
+    void main(){
+      float rim = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+      rim = pow(rim, 1.8);
+      float near = smoothstep(0.0, 0.035, vT);
+      float far  = 1.0 - smoothstep(0.25, 1.0, vT);
+      float gf   = smoothstep(0.004, 0.11, vY);   // 贴地后滚散
+      float a = (0.16 + 0.95 * rim) * near * far * gf * uOpacity;
+      vec3 col = uColor * (0.55 + 1.15 * rim);
+      gl_FragColor = vec4(col, a);
+    }
+  `,
+  transparent: true,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  side: THREE.DoubleSide
+});
+const beam = new THREE.Mesh(beamGeo, beamMat);
+beam.position.z = HEAD_Z1 + 0.014;
+beam.renderOrder = 6;
+beam.visible = false;
+tilt.add(beam);
+
+const spot = new THREE.SpotLight(0xd8e6ff, 0, 8, THREE.MathUtils.degToRad(3.2), 0.5, 1.05);
+spot.position.set(0, 0, HEAD_Z1);
+spot.target.position.set(0, 0, HEAD_Z1 + 2);
+tilt.add(spot, spot.target);
+
+const glow = (function(){
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0.0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(210,230,255,0.55)');
+  g.addColorStop(1.0, 'rgba(160,200,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex, color: 0xcfe2ff, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+  s.position.set(0, 0, HEAD_Z1 + 0.030);
+  s.scale.setScalar(0.42);
+  tilt.add(s);
+  return s;
+})();
+
+/* ============================================================
    6. 模式 / 交互
    ============================================================ */
-const state = { mode: 'solid', p: 0, target: 0, ghost: 0, ghostTarget: 0, auto: true };
+const state = { mode: 'solid', p: 0, target: 0, ghost: 0, ghostTarget: 0, auto: true,
+                beam: true, dim: 0.72, dimA: 0 };
 
 function setMode(mode){
   state.mode = mode;
@@ -838,7 +929,7 @@ btnRotate.addEventListener('click', () => {
   btnRotate.classList.toggle('on', state.auto);
 });
 
-const home = { pos: new THREE.Vector3(0.84, 0.56, 1.10), tgt: new THREE.Vector3(0, 0.255, 0) };
+const home = { pos: new THREE.Vector3(1.22, 0.80, 1.92), tgt: new THREE.Vector3(0, 0.22, 0.62) };
 document.getElementById('btnReset').addEventListener('click', () => {
   camera.position.copy(home.pos);
   controls.target.copy(home.tgt);
@@ -847,6 +938,7 @@ document.getElementById('btnReset').addEventListener('click', () => {
 
 addEventListener('keydown', e => {
   if (e.code === 'KeyR') { camera.position.copy(home.pos); controls.target.copy(home.tgt); controls.update(); }
+  if (e.code === 'KeyL') { state.beam = !state.beam; syncBeamUI(); }
   if (e.code === 'Space') { e.preventDefault(); btnRotate.click(); }
   if (e.code === 'Digit1') setMode('solid');
   if (e.code === 'Digit2') setMode('ghost');
@@ -865,6 +957,22 @@ renderer.domElement.addEventListener('pointerup', () => {
 });
 
 controls.autoRotate = true;
+
+// 光束开关 + 调光
+const btnBeam = document.getElementById('btnBeam');
+const dimmer = document.getElementById('dimmer');
+dimmer.style.setProperty('--v', (state.dim * 100) + '%');
+function syncBeamUI(){
+  btnBeam.classList.toggle('on', state.beam);
+  dimmer.classList.toggle('off', !state.beam);
+}
+dimmer.addEventListener('input', () => {
+  state.dim = dimmer.value / 100;
+  dimmer.style.setProperty('--v', dimmer.value + '%');
+  if (!state.beam) { state.beam = true; syncBeamUI(); }
+});
+btnBeam.addEventListener('click', () => { state.beam = !state.beam; syncBeamUI(); });
+syncBeamUI();
 
 // 视图参数（可分享 / 自检）：?mode=ghost&cam=1.1,0.6,0.9&tgt=0,0.28,0
 (function urlViews(){
@@ -908,10 +1016,18 @@ function animate(){
     });
   }
 
-  // 光学件爆炸
+  // 光学件分层
   EXPLODE.forEach(e => {
     e.g.position.z = e.z0 + state.p * (e.k * 0.048);
   });
+
+  // 光束
+  const dimTo = state.beam ? state.dim : 0;
+  state.dimA += (dimTo - state.dimA) * Math.min(1, dt * 5);
+  beamMat.uniforms.uOpacity.value = state.dimA * 0.9;
+  spot.intensity = state.dimA * 90;
+  glow.material.opacity = state.dimA * 0.8;
+  beam.visible = state.dimA > 0.003;
 
   controls.update();
   renderer.render(scene, camera);
