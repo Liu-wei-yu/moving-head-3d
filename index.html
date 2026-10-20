@@ -67,6 +67,50 @@
   }
   .off{opacity:.3;pointer-events:none}
 
+  /* ---------- 部件信息卡 ---------- */
+  .info{
+    position:absolute;right:34px;top:130px;width:252px;
+    background:var(--glass);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px 18px;backdrop-filter:blur(18px) saturate(140%);
+    -webkit-backdrop-filter:blur(18px) saturate(140%);
+    box-shadow:0 20px 50px -24px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.05);
+    transition:opacity .25s,transform .25s;
+  }
+  .info.empty{opacity:.55}
+  .info .tag{
+    display:inline-block;font-size:10px;letter-spacing:.18em;padding:3px 7px;border-radius:5px;
+    background:rgba(102,217,255,.14);color:#7fd4f5;margin-bottom:9px;
+    font-family:ui-monospace,Consolas,monospace;text-transform:uppercase;
+  }
+  .info h2{margin:0 0 8px;font-size:14.5px;font-weight:600;letter-spacing:.04em;color:#f2f4f8}
+  .info p{margin:0;font-size:12px;line-height:1.85;color:#98a0ae}
+
+  /* ---------- DMX 控制台 ---------- */
+  .mixer{
+    position:absolute;left:34px;bottom:26px;width:206px;
+    background:var(--glass);border:1px solid var(--line);border-radius:14px;
+    padding:12px 14px 10px;backdrop-filter:blur(18px) saturate(140%);
+    -webkit-backdrop-filter:blur(18px) saturate(140%);
+    box-shadow:0 20px 50px -24px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .mixer .h{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font-size:10px;letter-spacing:.2em;color:#6f7787;
+    font-family:ui-monospace,Consolas,monospace;margin-bottom:10px;
+  }
+  .ch{display:flex;align-items:center;gap:8px;margin:7px 0}
+  .ch span{
+    width:46px;font-size:9.5px;letter-spacing:.13em;color:#7d8697;
+    font-family:ui-monospace,Consolas,monospace;
+  }
+  .ch input[type=range]{width:100%;margin:0}
+  .ch b{
+    width:38px;text-align:right;font-size:10px;font-weight:500;color:#c9cfdb;
+    font-family:ui-monospace,Consolas,monospace;
+  }
+
+  @media (max-width:900px){ .mixer{display:none} .info{right:16px;top:104px;width:200px} }
+
   .hint{
     position:absolute;left:50%;bottom:78px;transform:translateX(-50%);
     font-size:11px;letter-spacing:.14em;color:#565d6b;white-space:nowrap;
@@ -111,6 +155,20 @@
   </div>
 
   <div class="hint">DRAG 旋转 · SCROLL 缩放 · L 光束 · 1/2/3 模式 · R 复位 · SPACE 自动旋转</div>
+
+  <div class="info empty" id="info">
+    <span class="tag" id="infoTag">SELECT</span>
+    <h2 id="infoName">点击任意部件</h2>
+    <p id="infoBody">拖拽旋转，点一下灯具上的零件，这里会讲它是干什么的。</p>
+  </div>
+
+  <div class="mixer">
+    <div class="h"><span>DMX 控制台</span><span>CH 1–4</span></div>
+    <div class="ch"><span>PAN</span><input id="mPan" type="range" min="-180" max="180" value="7"><b id="vPan">7°</b></div>
+    <div class="ch"><span>TILT</span><input id="mTilt" type="range" min="-60" max="60" value="25"><b id="vTilt">25°</b></div>
+    <div class="ch"><span>ZOOM</span><input id="mZoom" type="range" min="2" max="12" step="0.2" value="4.4"><b id="vZoom">4.4°</b></div>
+    <div class="ch"><span>COLOR</span><input id="mColor" type="range" min="0" max="6" step="1" value="0"><b id="vColor">OPEN</b></div>
+  </div>
 
   <div class="dock">
     <button data-mode="solid" class="on">外观</button>
@@ -186,10 +244,10 @@ scene.fog = new THREE.Fog(0x141821, 2.2, 4.6);
 })();
 
 const camera = new THREE.PerspectiveCamera(34, innerWidth / innerHeight, 0.05, 60);
-camera.position.set(1.22, 0.80, 1.92);
+camera.position.set(1.06, 0.63, 1.63);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.22, 0.62);
+controls.target.set(0, 0.245, 0.13);
 controls.enableDamping = true;
 controls.dampingFactor = 0.055;
 controls.minDistance = 0.55;
@@ -396,6 +454,37 @@ function disc(r, t, mat, seg = 48){
 function at(obj, x, y, z){ obj.position.set(x, y, z); return obj; }
 
 /* ============================================================
+   3.5 部件表（点选讲解）
+   ============================================================ */
+const PARTS = {
+  base:     { tag:'机构', name:'静止底座', body:'不动的底座，里面装电源、主控板、接口和 pan 电机。上面那一圈回转体才是会转的部分。' },
+  io:       { tag:'电气', name:'接口面板', body:'DMX512 信号从这里进灯，多台灯用 OUT 串到下一台的 IN；旁边是 powerCON 电源、保险和开关。' },
+  lcd:      { tag:'电气', name:'控制面板', body:'设 DMX 地址、手动调参、看温度。没有控台的时候，就靠它和四个按键独立操作。' },
+  pcb:      { tag:'电气', name:'主控板', body:'收 DMX512 帧、解析通道、驱动各路电机和灯，做电源管理和过温保护。' },
+  psu:      { tag:'电气', name:'开关电源', body:'把 220V 转成灯和电机用的低压直流。它和灯芯是发热最大的两处，所以旁边一定有风扇。' },
+  pan_motor:{ tag:'运动', name:'pan 电机', body:'带减速箱的步进/伺服电机，驱动回转体做 360° 水平旋转；它旁边的编码器负责回零和定位。' },
+  pan_drum: { tag:'运动', name:'pan 回转体', body:'整个上半部分（轭架 + 灯头）都挂在这个回转体上，绕垂直轴连续 360° 旋转 —— 这就是 pan。' },
+  arm:      { tag:'机构', name:'轭架', body:'两侧厚板构成 U 型轭架，中间横穿俯仰轴。它的刚度直接决定灯头会不会扫。' },
+  hub:      { tag:'运动', name:'俯仰轴座', body:'tilt 轴，灯头绕它上下俯仰；里面是减速箱和编码器。' },
+  head:     { tag:'机构', name:'灯头外壳', body:'上下分壳的压铸铝壳体，本身兼做散热体。内部整条光学链都挂在里面的支架上。' },
+  hood:     { tag:'光学', name:'镜头罩', body:'出光口的锥形遮光罩，压掉杂散光、防止侧向眩光；内壁做消光处理。' },
+  lens:     { tag:'光学', name:'前镜片', body:'最外一片保护镜/平凸镜，镀增透膜，把反射损失降到最低。它的口径基本决定了整机的出光效率。' },
+  keel:     { tag:'机构', name:'顶部龙骨', body:'加强筋兼导轨，外壳纵向刚度的来源；后段开百叶形成对流散热。' },
+  rear:     { tag:'机构', name:'后端板', body:'风扇格栅 + 散热口。灯芯和电源的热量都往这里排。' },
+  bulb:     { tag:'光学', name:'灯芯', body:'7R 气体放电泡（或 LED 模组），色温约 8000K。点光源越接近理想点，反光碗出来的光越锐。' },
+  reflector:{ tag:'光学', name:'反光碗', body:'抛物面镀铝反光碗。光束角能做得很小，主要靠它把散光收成近平行光，而不是靠前面的透镜。' },
+  color:    { tag:'光学', name:'色轮', body:'6 片二向色滤色片 + 1 个空位。轮盘是偏心装的：光从滤色片的中间半径穿过，而不是穿过圆心，所以换色只要转盘、光路不动。' },
+  gobo1:    { tag:'光学', name:'图案轮 1', body:'金属图案轮，8 个图案位，靠光电寻位。把花纹投到光斑里，是图案灯和光束灯的差别所在。' },
+  gobo2:    { tag:'光学', name:'图案轮 2', body:'可自转的图案轮，和第一轮叠加能做出水纹、火焰这类动态效果。' },
+  prism:    { tag:'光学', name:'八棱镜', body:'插进光路后把一束光分成多束，是光束灯最出效果的附件；旋转时会在墙面扫开。' },
+  frost:    { tag:'光学', name:'雾化片', body:'雾化（柔光）片，把硬边光斑揉软，用来把光束灯临时当染色灯用。' },
+  focus:    { tag:'光学', name:'调焦镜', body:'调焦（Focus）：单片镜前后移动改变焦点，决定光斑边缘是虚还是实。' },
+  zoom:     { tag:'光学', name:'变焦镜组', body:'变焦（Zoom）：两片镜之间的距离决定光束角，推 zoom 时两片镜反向移动，光斑从几度到十几度连续变。' },
+  rod:      { tag:'机械', name:'导杆', body:'光学支架的导轨，所有色轮、图案轮、镜组都挂在这四根杆上。偏 0.1mm，光斑就歪。' }
+};
+function tag(obj, key){ if (obj) obj.userData.part = key; return obj; }
+
+/* ============================================================
    4. 尺寸（真机 Beam 230：405 × 345 × 475 mm）
    ============================================================ */
 const BASE_W = 0.400, BASE_D = 0.300;
@@ -473,10 +562,13 @@ for (const s of [1, -1]) {
   }
 }
 
+tag(base, 'base'); tag(baseTop, 'base'); tag(panel, 'io');
+[tag(lcd, 'lcd'), tag(lcdFrame, 'lcd'), tag(knob, 'lcd')];
+
 /* ---------- 4.1b 底座内部（电气层） ---------- */
 {
   const pcb = new THREE.Mesh(new THREE.BoxGeometry(0.212, 0.006, 0.150), M.pcb);
-  at(pcb, 0, 0.021, 0.006); root.add(mark(pcb, false));
+  at(pcb, 0, 0.021, 0.006); root.add(mark(pcb, false)); tag(pcb, 'pcb');
 
   for (let i = 0; i < 10; i++) {
     const w = 0.014 + (i % 3) * 0.006;
@@ -491,13 +583,13 @@ for (const s of [1, -1]) {
   }
   // 电源模块
   const psu = new THREE.Mesh(new THREE.BoxGeometry(0.104, 0.046, 0.070), M.dark);
-  at(psu, -0.098, 0.049, -0.062); root.add(mark(psu, false));
+  at(psu, -0.098, 0.049, -0.062); root.add(mark(psu, false)); tag(psu, 'psu');
   const psuFin = new THREE.Mesh(new THREE.BoxGeometry(0.100, 0.040, 0.004), M.matt);
   at(psuFin, -0.098, 0.049, -0.098); root.add(mark(psuFin, false));
 
   // pan 电机 + 编码器（静止侧）
   const pMotor = cyl(0.021, 0.021, 0.052, M.dark, 22);
-  at(pMotor, 0.058, 0.062, -0.052); root.add(mark(pMotor, false));
+  at(pMotor, 0.058, 0.062, -0.052); root.add(mark(pMotor, false)); tag(pMotor, 'pan_motor');
   const pEnc = cyl(0.013, 0.013, 0.022, M.dark, 16);
   at(pEnc, -0.048, 0.048, -0.052); root.add(mark(pEnc, false));
 
@@ -534,6 +626,7 @@ pan.add(boss); housing.push(boss); boss.userData.solid = boss.material;
   at(plug, s * 0.060, DRUM_Y0 + 0.040 - 0.100, -0.126);
   pan.add(plug);
 });
+tag(drum, 'pan_drum'); tag(drumLip, 'pan_drum'); tag(boss, 'pan_drum');
 
 /* ---------- 4.3 轭架（随 pan 旋转） ---------- */
 // (z, y) 轮廓：宽底、收腰、顶部斜切
@@ -565,6 +658,8 @@ for (const s of [1, -1]) {
   cap.rotation.z = Math.PI / 2;
   at(cap, s * (ARM_X + ARM_T / 2 + 0.010), TILT_Y - 0.100, 0);
   pan.add(cap);
+
+  tag(arm, 'arm'); tag(cheek, 'arm'); tag(hub, 'hub');
 }
 
 /* ---------- 4.4 灯头 ---------- */
@@ -670,6 +765,9 @@ const rearPlate = mark(new THREE.Mesh(rearGeo, M.accent), true);
 at(rearPlate, 0, 0, HEAD_Z0 + 0.002);
 tilt.add(rearPlate);
 
+tag(head, 'head'); tag(hood, 'hood'); tag(lens, 'lens');
+tag(keelA, 'keel'); tag(keelB, 'keel'); tag(rearPlate, 'rear');
+
 for (let i = 0; i < 3; i++) {
   const t = new THREE.Mesh(new THREE.TorusGeometry(0.020 + i * 0.016, 0.0022, 8, 40), M.dark);
   at(t, 0, 0, HEAD_Z0 - 0.004);
@@ -705,7 +803,7 @@ function optic(k, z, name){
   at(lamp, 0, 0, -0.018); g.add(mark(lamp, false));
   const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.009, 16, 12),
     new S({ color:0x1a1108, emissive:0xff9c46, emissiveIntensity:0.55, roughness:0.4 }));
-  at(bulb, 0, 0, -0.006); g.add(bulb);
+  at(bulb, 0, 0, -0.006); g.add(bulb); tag(bulb, 'bulb');
 
   const bowlPts = [];
   for (let i = 0; i <= 12; i++) {
@@ -717,28 +815,45 @@ function optic(k, z, name){
   const bowlGeo = new THREE.LatheGeometry(bowlPts, 56);
   bowlGeo.rotateX(Math.PI / 2);
   const bowl = new THREE.Mesh(bowlGeo, M.bowl);
-  at(bowl, 0, 0, -0.004); g.add(mark(bowl, false));
+  at(bowl, 0, 0, -0.004); g.add(mark(bowl, false)); tag(bowl, 'reflector');
 }
 
-// 5.2 色轮
+// 5.2 色轮（7 位、偏心安装：光从滤色片中段穿过，换色只转盘）
+const SECT = 360 / 7;
+const COLOR_STOPS = [
+  { name: 'OPEN',  hex: 0xdfe9ff },
+  { name: 'RED',   hex: 0xff4436 },
+  { name: 'GREEN', hex: 0x3ce884 },
+  { name: 'BLUE',  hex: 0x4a86ff },
+  { name: 'AMBER', hex: 0xffb547 },
+  { name: 'PINK',  hex: 0xff5fb0 },
+  { name: 'CYAN',  hex: 0x3fd8e0 }
+];
+const FILTER_HEX = [0xd23b3b, 0x35b269, 0x3d6fd8, 0xd8a13a, 0xd86a2a, 0xb04fd0];
+const wheelRotFor = i => THREE.MathUtils.degToRad(180 - (i * SECT + SECT / 2));
+let wheelGroup;
 {
   const g = optic(1, -0.072);
-  const wheel = disc(0.050, 0.003, M.dark, 40); wheel.rotation.x = Math.PI / 2;
-  g.add(wheel);
-  const cols = [0xd23b3b, 0x35b269, 0x3d6fd8, 0xd8a13a, 0xd86a2a, 0xb04fd0];
-  cols.forEach((c, i) => {
+  wheelGroup = new THREE.Group();
+  wheelGroup.position.x = 0.033;
+  g.add(wheelGroup);
+
+  FILTER_HEX.forEach((c, j) => {
+    const a0 = (j * SECT + 2) * Math.PI / 180;
     const seg = new THREE.Mesh(
-      new THREE.RingGeometry(0.016, 0.048, 1, 1, (i * 60 + 3) * Math.PI / 180, 54 * Math.PI / 180),
-      new P({ color:c, transparent:true, opacity:0.85, roughness:0.15, metalness:0.1,
-              side:THREE.DoubleSide, emissive:c, emissiveIntensity:0.12 })
+      new THREE.RingGeometry(0.015, 0.050, 3, 1, a0, (SECT - 4) * Math.PI / 180),
+      new P({ color: c, transparent: true, opacity: 0.9, roughness: 0.18, metalness: 0.1,
+              side: THREE.DoubleSide, emissive: c, emissiveIntensity: 0.10 })
     );
-    seg.position.z = 0.0022;
-    g.add(seg);
+    wheelGroup.add(seg);
   });
-  const cog = cyl(0.010, 0.010, 0.012, M.steel, 20); cog.rotation.x = Math.PI / 2;
-  g.add(cog);
+  const hubRing = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.0034, 8, 44),
+    new P({ color: 0x1e2128, metalness: 0.6, roughness: 0.35 }));
+  wheelGroup.add(hubRing);
+  const cog = disc(0.014, 0.010, M.steel, 20); cog.rotation.x = Math.PI / 2;
+  wheelGroup.add(cog);
   const motor = cyl(0.013, 0.013, 0.032, M.dark, 18); motor.rotation.x = Math.PI / 2;
-  at(motor, 0.030, 0.042, 0.026); g.add(motor);
+  at(motor, -0.024, 0.052, 0.026); g.add(motor);
 }
 
 // 5.3 / 5.4 图案轮
@@ -812,7 +927,7 @@ function optic(k, z, name){
   const rod = cyl(0.0038, 0.0038, 0.320, M.steel, 12);
   rod.rotation.x = Math.PI / 2;
   at(rod, Math.cos(a) * 0.083, Math.sin(a) * 0.083, -0.010);
-  tilt.add(rod);
+  tilt.add(tag(rod, 'rod'));
 });
 for (const s of [1, -1]) {
   const f = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.030, 0.310), M.dark);
@@ -823,8 +938,11 @@ for (const s of [1, -1]) {
 /* ============================================================
    5.9 光束：体积光锥 + 地面光斑 + 镜头辉光
    ============================================================ */
-const BEAM_LEN = 3.2;
-const BEAM_HALF = THREE.MathUtils.degToRad(2.2);
+const OPTIC_TAGS = ['lamp','color','gobo1','gobo2','prism','frost','focus','zoom','zoom'];
+EXPLODE.forEach((e, i) => { if (OPTIC_TAGS[i]) tag(e.g, OPTIC_TAGS[i]); });
+
+const BEAM_LEN = 3.0;
+const BEAM_HALF = THREE.MathUtils.degToRad(3.0);
 
 const beamGeo = new THREE.ConeGeometry(Math.tan(BEAM_HALF) * BEAM_LEN, BEAM_LEN, 64, 1, true);
 beamGeo.translate(0, -BEAM_LEN / 2, 0);
@@ -909,7 +1027,10 @@ const glow = (function(){
    6. 模式 / 交互
    ============================================================ */
 const state = { mode: 'solid', p: 0, target: 0, ghost: 0, ghostTarget: 0, auto: true,
-                beam: true, dim: 0.72, dimA: 0 };
+                beam: true, dim: 0.72, dimA: 0,
+                zoom: 4.4, colorIdx: 0,
+                wheelT: wheelRotFor(0), colorTarget: new THREE.Color(COLOR_STOPS[0].hex),
+                colorCur: new THREE.Color(COLOR_STOPS[0].hex) };
 
 function setMode(mode){
   state.mode = mode;
@@ -929,7 +1050,7 @@ btnRotate.addEventListener('click', () => {
   btnRotate.classList.toggle('on', state.auto);
 });
 
-const home = { pos: new THREE.Vector3(1.22, 0.80, 1.92), tgt: new THREE.Vector3(0, 0.22, 0.62) };
+const home = { pos: new THREE.Vector3(1.06, 0.63, 1.63), tgt: new THREE.Vector3(0, 0.245, 0.13) };
 document.getElementById('btnReset').addEventListener('click', () => {
   camera.position.copy(home.pos);
   controls.target.copy(home.tgt);
@@ -974,6 +1095,106 @@ dimmer.addEventListener('input', () => {
 btnBeam.addEventListener('click', () => { state.beam = !state.beam; syncBeamUI(); });
 syncBeamUI();
 
+/* ---- DMX 控制台 ---- */
+const mPan = document.getElementById('mPan'), vPan = document.getElementById('vPan');
+const mTilt = document.getElementById('mTilt'), vTilt = document.getElementById('vTilt');
+const mZoom = document.getElementById('mZoom'), vZoom = document.getElementById('vZoom');
+const mColor = document.getElementById('mColor'), vColor = document.getElementById('vColor');
+
+mPan.addEventListener('input', () => {
+  pan.rotation.y = THREE.MathUtils.degToRad(+mPan.value);
+  vPan.textContent = mPan.value + '°';
+});
+mTilt.addEventListener('input', () => {
+  tilt.rotation.x = THREE.MathUtils.degToRad(+mTilt.value);
+  vTilt.textContent = mTilt.value + '°';
+});
+mZoom.addEventListener('input', () => {
+  state.zoom = +mZoom.value;
+  vZoom.textContent = state.zoom.toFixed(1) + '°';
+});
+mColor.addEventListener('input', () => {
+  const i = +mColor.value;
+  state.colorIdx = i;
+  state.wheelT = wheelRotFor(i);
+  state.colorTarget.set(COLOR_STOPS[i].hex);
+  vColor.textContent = COLOR_STOPS[i].name;
+});
+pan.rotation.y = THREE.MathUtils.degToRad(+mPan.value);
+tilt.rotation.x = THREE.MathUtils.degToRad(+mTilt.value);
+state.wheelT = wheelRotFor(0);
+wheelGroup.rotation.z = state.wheelT;
+
+/* ---- 点选部件 ---- */
+const raycaster = new THREE.Raycaster();
+const ndcV = new THREE.Vector2();
+const noRay = () => {};
+beam.raycast = noRay;
+glow.raycast = noRay;
+
+const selBox = new THREE.Box3Helper(new THREE.Box3(), 0x5fd0ff);
+selBox.raycast = noRay;
+selBox.visible = false;
+selBox.material.depthTest = false;
+selBox.material.transparent = true;
+selBox.material.opacity = 0.9;
+scene.add(selBox);
+
+const infoEl = document.getElementById('info');
+const elTag = document.getElementById('infoTag');
+const elName = document.getElementById('infoName');
+const elBody = document.getElementById('infoBody');
+let picked = null;
+
+function findPart(o){
+  let n = o;
+  while (n && n !== root && !n.userData.part) n = n.parent;
+  return (n && n !== root) ? n : null;
+}
+function pickAt(cx, cy){
+  const r = renderer.domElement.getBoundingClientRect();
+  ndcV.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndcV, camera);
+  const hits = raycaster.intersectObject(root, true);
+  for (const h of hits){
+    if (!h.object.visible) continue;
+    const n = findPart(h.object);
+    if (n) return n;
+  }
+  return null;
+}
+function showInfo(obj){
+  picked = obj;
+  if (!obj){
+    selBox.visible = false;
+    infoEl.classList.add('empty');
+    elTag.textContent = 'SELECT';
+    elName.textContent = '点击任意部件';
+    elBody.textContent = '拖拽旋转，点一下灯具上的零件，这里会讲它是干什么的。';
+    return;
+  }
+  const d = PARTS[obj.userData.part] || { tag: '·', name: obj.userData.part, body: '' };
+  elTag.textContent = d.tag;
+  elName.textContent = d.name;
+  elBody.textContent = d.body;
+  infoEl.classList.remove('empty');
+  selBox.visible = true;
+}
+
+let pdX = 0, pdY = 0;
+renderer.domElement.addEventListener('pointerdown', e => { pdX = e.clientX; pdY = e.clientY; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (Math.hypot(e.clientX - pdX, e.clientY - pdY) > 6) return;
+  showInfo(pickAt(e.clientX, e.clientY));
+});
+renderer.domElement.addEventListener('pointermove', e => {
+  if (e.buttons) return;
+  renderer.domElement.style.cursor = pickAt(e.clientX, e.clientY) ? 'pointer' : 'grab';
+});
+
+// 调试/分享钩子（不依赖 UI 也能定位部件）
+window.__mh = { pickAt, showInfo, root, camera };
+
 // 视图参数（可分享 / 自检）：?mode=ghost&cam=1.1,0.6,0.9&tgt=0,0.28,0
 (function urlViews(){
   const q = new URLSearchParams(location.search);
@@ -1013,6 +1234,7 @@ function animate(){
       m.material = (state.ghost > 0.02) ? GHOST : m.userData.solid;
       m.castShadow = state.ghost < 0.5;
       m.renderOrder = (state.ghost > 0.02) ? 2 : 0;
+      m.raycast = (state.ghost > 0.02) ? noRay : THREE.Mesh.prototype.raycast;
     });
   }
 
@@ -1024,10 +1246,21 @@ function animate(){
   // 光束
   const dimTo = state.beam ? state.dim : 0;
   state.dimA += (dimTo - state.dimA) * Math.min(1, dt * 5);
-  beamMat.uniforms.uOpacity.value = state.dimA * 0.9;
+  beamMat.uniforms.uOpacity.value = state.dimA * 0.72;
   spot.intensity = state.dimA * 90;
-  glow.material.opacity = state.dimA * 0.8;
+  glow.material.opacity = state.dimA * 0.75;
   beam.visible = state.dimA > 0.003;
+
+  // 色轮 / 变焦 / 颜色
+  wheelGroup.rotation.z += (state.wheelT - wheelGroup.rotation.z) * Math.min(1, dt * 5);
+  state.colorCur.lerp(state.colorTarget, Math.min(1, dt * 7));
+  beamMat.uniforms.uColor.value.copy(state.colorCur);
+  spot.color.copy(state.colorCur);
+  const zk = Math.tan(THREE.MathUtils.degToRad(state.zoom / 2)) / Math.tan(BEAM_HALF);
+  beam.scale.set(zk, zk, 1);
+  spot.angle = THREE.MathUtils.degToRad(state.zoom * 0.55);
+
+  if (picked) selBox.box.setFromObject(picked);
 
   controls.update();
   renderer.render(scene, camera);
